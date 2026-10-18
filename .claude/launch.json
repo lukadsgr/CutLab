@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "cutlab", "runtimeExecutable": "node", "runtimeArgs": ["cutlab/serve.mjs"], "port": 5173 }
+  ]
+}

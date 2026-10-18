@@ -1,0 +1,16 @@
+# Gerado por `node cutlab/build.mjs` a partir de cutlab/src/
+cutlab/CutLab.html
+
+# Dependências e saídas de build (caso existam no futuro)
+node_modules/
+dist/
+
+# Configurações locais do Claude Code (launch.json é compartilhado)
+.claude/settings.local.json
+
+# Sistema operacional e editores
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+*.log
