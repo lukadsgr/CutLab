@@ -48,18 +48,21 @@ function updateAtPath(root, path, fn, magnet) {
 }
 /**
  * clipes de mídia de toda a árvore em tempo absoluto, para sincronizar áudio/vídeo.
- * Os de dentro de compostos levam a janela visível (_win), mudo e ganho herdados.
+ * Os de dentro de compostos levam a janela visível (_win), mudo, ganho e fades de áudio (_fades) herdados.
  */
-function expandMedia(clips, ts, off = 0, win = null, muted = false, gain = 1, nested = false) {
+function expandMedia(clips, ts, off = 0, win = null, muted = false, gain = 1, nested = false, fades = []) {
   const out = [];
   for (const c of clips) {
     if (isCompound(c)) {
       const s = off + c.start, w = [Math.max(s, win ? win[0] : -Infinity), Math.min(s + c.duration, win ? win[1] : Infinity)];
       const m = muted || !!(ts[c.track]?.muted || ts[clipRow(c)]?.muted);
-      out.push(...expandMedia(c.children, c.trackState || {}, s - c.in, w, m, gain * ((c.props.volume ?? 100) / 100), true));
+      const fd = c.props.fadeIn > 0 || c.props.fadeOut > 0 ? [...fades, { start: s, duration: c.duration, props: c.props }] : fades;
+      out.push(...expandMedia(c.children, c.trackState || {}, s - c.in, w, m, gain * ((c.props.volume ?? 100) / 100), true, fd));
     } else if (isMedia(c) || !nested) {
-      out.push(nested ? { ...c, start: c.start + off, _sub: true, _win: win, _muted: muted || !!(ts[c.track]?.muted || ts[clipRow(c)]?.muted), _gain: gain } : c);
+      out.push(nested ? { ...c, start: c.start + off, _sub: true, _win: win, _muted: muted || !!(ts[c.track]?.muted || ts[clipRow(c)]?.muted), _gain: gain, _fades: fades } : c);
     }
   }
   return out;
 }
+/** fade de áudio do clipe no instante t, junto com os fades dos compostos em que ele está */
+const audioFade = (c, t) => (c._fades || []).reduce((f, p) => f * fadeFactor(p, t), fadeFactor(c, t));

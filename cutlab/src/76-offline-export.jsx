@@ -137,7 +137,7 @@ async function mixProjectAudio(clips, assetMap, ts, dur, sr) {
     const n = Math.ceil((t1 - t0) * 30);
     for (let i = 0; i <= n; i++) {
       const t = Math.min(t1, t0 + i / 30);
-      const v = Math.max(0, (propAt(c, 'volume', t - c.start) / 100) * fadeFactor(c, t) * (c._gain ?? 1));
+      const v = Math.max(0, (propAt(c, 'volume', t - c.start) / 100) * audioFade(c, t) * (c._gain ?? 1));
       if (i === 0) g.gain.setValueAtTime(v, t); else g.gain.linearRampToValueAtTime(v, t);
     }
     src.connect(g).connect(ctx.destination);

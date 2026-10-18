@@ -203,7 +203,7 @@ class Engine {
         this.rates.set(c.id, { rate, playing: !!state.play });
         const muted = (c._sub ? c._muted : trackState[c.track]?.muted || trackState[clipRow(c)]?.muted || (soloOn(trackState) && !trackState[clipRow(c)]?.solo)) || !state.active;
         const vol = propAt(c, 'volume', clamp(t - c.start, 0, c.duration));
-        this.setVolume(c.id, el, muted ? 0 : (vol / 100) * fadeFactor(c, t) * (c._gain ?? 1));
+        this.setVolume(c.id, el, muted ? 0 : (vol / 100) * audioFade(c, t) * (c._gain ?? 1));
         if (state.play) {
           if (el.paused) {
             this.seek(c.id, el, state.src);
@@ -293,7 +293,9 @@ class Engine {
     const p = resolveProps(c, local);
     // animações de entrada/saída/combinação
     const T = animTransform(c, p, local);
-    const alpha = ((p.blendOn ? p.opacity : 100) / 100) * fadeFactor(c, t) * T.a;
+    // em vídeo e composto o fade fica na aba Áudio: só mexe no volume, não na imagem
+    const fade = c.type === 'video' || c.type === 'compound' ? 1 : fadeFactor(c, t);
+    const alpha = ((p.blendOn ? p.opacity : 100) / 100) * fade * T.a;
     const sc = (p.scale / 100) * T.s;
     const cx = W / 2 + (p.x / 100) * (W / 2) + T.x * W;
     const cy = H / 2 + (p.y / 100) * (H / 2) + T.y * H;
