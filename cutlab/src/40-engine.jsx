@@ -100,6 +100,7 @@ function transitionPairs(clips) {
 
 class Engine {
   constructor() {
+    this.playLat = 0.15;     // segundos entre play() e a mídia andar (medido; usado na pré-rolagem)
     this.media = new Map();
     this.images = new Map();
     this.erase = new Map();
@@ -215,10 +216,12 @@ class Engine {
           // em cena e sem quadros para mostrar (buscando/carregando): o relógio da reprodução espera
           if (state.active && (el.seeking || el.readyState < 3)) stalled = true;
           if (el.paused) {
-            // já parado no ponto certo (pausa → play): buscar de novo só atrasaria o início
-            if (el.readyState < 2 || Math.abs(el.currentTime - state.src) > 0.02) { this.seek(c.id, el, state.src); stalled = state.active || stalled; }
+            // já parado no ponto certo (pausa → play, corte sem pré-rolagem): buscar de novo só atrasaria
+            // o início. Um pouco atrás (até 0,1 s) o relógio mestre absorve
+            const d = state.src - el.currentTime;
+            if (el.readyState < 2 || d > 0.1 || d < -0.02) { this.seek(c.id, el, state.src); stalled = state.active || stalled; }
             el.playbackRate = rate;
-            el.play().catch(() => {});
+            this.startPlay(el);
           } else if (!el.seeking) {
             // relógio mestre: a mídia em cena tocando (vídeo da Principal primeiro) dita o tempo da
             // reprodução. Com o relógio do navegador separado, a diferença oscilava ~1 quadro e a
@@ -243,13 +246,35 @@ class Engine {
             }
           }
         } else {
-          if (!el.paused) el.pause();
-          if (!el.seeking && Math.abs(el.currentTime - state.src) > 0.03) this.seek(c.id, el, state.src);
+          // clipe B de uma transição, prestes a começar: pré-rolagem como no corte seco (ver abaixo)
+          const roll = playing && c.start > t && c.start - t <= this.playLat && !c.speedCurve && el.readyState >= 2 && !el.seeking;
+          if (roll && el.paused && Math.abs(el.currentTime - c.in) < 0.03) { el.playbackRate = rate; this.startPlay(el); }
+          else if (!roll || el.paused) {
+            if (!el.paused) el.pause();
+            if (!el.seeking && Math.abs(el.currentTime - state.src) > 0.03) this.seek(c.id, el, state.src);
+          }
         }
       } else {
-        if (!el.paused) el.pause();
-        // pré-posiciona o próximo clipe para evitar quadro preto
-        if (c.start > t && c.start - t < 1.5 && !el.seeking && Math.abs(el.currentTime - c.in) > 0.05) el.currentTime = c.in;
+        const until = c.start - t;
+        // pré-rolagem: o <video> leva ~0,1–0,2 s entre play() e o primeiro quadro andando. Começa a
+        // tocar (sem som) do ponto de entrada um pouco antes do corte — a antecedência é a latência
+        // medida —, e no corte ele já está rodando em vez de congelar a imagem
+        const roll = playing && until > 0 && until <= this.playLat && !c.speedCurve && el.readyState >= 2 && !el.seeking;
+        if (roll && el.paused && Math.abs(el.currentTime - c.in) < 0.03) {
+          this.setVolume(c.id, el, 0);
+          el.playbackRate = clamp(c.speed, 0.0625, 16);
+          this.startPlay(el);
+        } else if (!roll || el.paused) {
+          if (!el.paused) el.pause();
+          // pré-posiciona o próximo clipe para evitar quadro preto
+          if (until > 0 && until < 1.5 && !el.seeking && Math.abs(el.currentTime - c.in) > 0.05) el.currentTime = c.in;
+        }
+      }
+      // latência do play(): do comando até o tempo da mídia começar a andar (média móvel)
+      if (el._pAt && !el.paused && el.currentTime > el._pFrom + 1e-3) {
+        const lat = (performance.now() - el._pAt) / 1000 - (el.currentTime - el._pFrom) / (el.playbackRate || 1);
+        this.playLat = clamp(this.playLat * 0.7 + clamp(lat, 0.02, 0.5) * 0.3, 0.04, 0.4);
+        el._pAt = 0;
       }
     }
     // nenhum elemento toca sem comando: clipes de outro nível (composto aberto), mídia
@@ -262,6 +287,12 @@ class Engine {
       el.pause();
       this.rates.delete(id);
     }
+  }
+  /** play() anotando quando foi pedido (para medir a latência de início, ver sync) */
+  startPlay(el) {
+    el._pAt = performance.now();
+    el._pFrom = el.currentTime;
+    el.play().catch(() => {});
   }
   /** tempo da linha do tempo segundo a mídia mestre (ver sync), ou null */
   clockTime() {
