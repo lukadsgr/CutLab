@@ -218,6 +218,30 @@ const MP4 = (() => {
   return { index };
 })();
 
+/** quadros por segundo de um vídeo MP4 (pelo índice: nº de quadros ÷ duração); null se não der para ler */
+async function mediaFps(file) {
+  try {
+    const { S, timescale } = await MP4.index(file, 'vide');
+    const n = S.dts.length;
+    if (n < 2) return null;
+    const span = (S.dts[n - 1] - S.dts[0]) / timescale;
+    return span > 0 ? Math.round(((n - 1) / span) * 100) / 100 : null;
+  } catch { return null; }
+}
+/** taxa de exportação sugerida: a do vídeo mais fluido do projeto, arredondada para um padrão → { suggest, source } */
+async function projectFps(clips, assetMap, ts = {}) {
+  let best = 0;
+  for (const c of expandMedia(clips, ts)) {
+    const a = c.type === 'video' && assetMap[c.assetId];
+    if (!a) continue;
+    if (a.fps == null && a.file) a.fps = await mediaFps(a.file);   // projetos antigos: calcula agora
+    best = Math.max(best, a.fps || 0);
+  }
+  if (!best) return { suggest: 30, source: null };
+  return { suggest: EXPORT_FPS.reduce((p, f) => (Math.abs(f - best) < Math.abs(p - best) ? f : p), 30), source: best };
+}
+const EXPORT_FPS = [24, 25, 30, 50, 60];
+
 /**
  * Áudio de um MP4 pelo índice próprio + AudioDecoder (WebCodecs), só no trecho [from, to] em segundos.
  * Plano B para quando decodeAudioData recusa o arquivo (MP4 fragmentado de gravadores de tela,

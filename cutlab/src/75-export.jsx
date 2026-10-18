@@ -1,7 +1,7 @@
 /* =====================================================================
    Modal de exportação
    ===================================================================== */
-function ExportModal({ state, name, resolution, setResolution, ratio, onStart, onCancel, onClose, progress, method, setMethod, offlineOk, offlineLabel }) {
+function ExportModal({ state, name, resolution, setResolution, ratio, onStart, onCancel, onClose, progress, method, setMethod, offlineOk, offlineLabel, fps, setFps, sourceFps }) {
   // o áudio da exportação rápida depende dos codificadores do navegador (AAC falta em alguns, ex.: Opera)
   const [audioSup, setAudioSup] = useState('aac');
   useEffect(() => { if (state?.stage === 'setup' && offlineOk) offlineAudioSupport().then(setAudioSup, () => setAudioSup(null)); }, [state?.stage, offlineOk]);
@@ -32,6 +32,15 @@ function ExportModal({ state, name, resolution, setResolution, ratio, onStart, o
               {Object.keys(RESOLUTIONS).map((r) => <button key={r} className={r === resolution ? 'on' : ''} onClick={() => setResolution(r)}>{r}</button>)}
             </div>
           </div>
+          {offline && (
+            <div className="field">
+              <div className="field-top"><label>Quadros por segundo</label><span className="kbd">{sourceFps ? `vídeo original: ${+sourceFps.toFixed(2)} fps` : ''}</span></div>
+              <div className="seg">
+                {EXPORT_FPS.map((f) => <button key={f} className={f === fps ? 'on' : ''} onClick={() => setFps(f)}>{f}</button>)}
+              </div>
+              {sourceFps && fps < sourceFps - 1 && <div className="hint" style={{ marginTop: 6 }}>Abaixo do original: o movimento fica menos fluido.</div>}
+            </div>
+          )}
           <div className="stat"><span>Arquivo</span><b>{name || 'video'}.{ext}</b></div>
           {offline && audioSup !== 'aac' && <AudioWarn kind={audioSup} before />}
           <div className="actions">
@@ -50,7 +59,7 @@ function ExportModal({ state, name, resolution, setResolution, ratio, onStart, o
           <h2>Pronto! 🎉</h2>
           <p>Seu vídeo foi exportado ({(state.size / 1048576).toFixed(1)} MB)
             {state.seconds ? ` em ${state.seconds.toFixed(1)}s — ${(state.duration / state.seconds).toFixed(1)}× a velocidade real` : ''}.</p>
-          {state.offline && <div className="stat"><span>Codecs</span><b>{codecName(state.codec)} · {state.audio ? state.audio.toUpperCase() : 'sem áudio'}</b></div>}
+          {state.offline && <div className="stat"><span>Formato</span><b>{codecName(state.codec)} · {state.fps} fps · {state.audio ? state.audio.toUpperCase() : 'sem áudio'}</b></div>}
           {state.offline && state.audio !== 'aac' && <AudioWarn kind={state.audio} />}
           <div className="actions">
             <button className="btn" onClick={onClose}>Fechar</button>

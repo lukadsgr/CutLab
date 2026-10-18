@@ -411,7 +411,7 @@ class Engine {
     const playing = this.offline || !!this.rates.get(c.id)?.playing;
     // desfoque de movimento: janela de tempo da mídia coberta por um quadro de saída (obturador de 180°)
     const mb = (p.motionBlur ?? 0) / 100;
-    const blurSpan = rate > 1.25 && mb > 0 ? Math.min(0.5, (rate / FPS) * mb) : 0;
+    const blurSpan = rate > 1.25 && mb > 0 ? Math.min(0.5, (rate / (this.outFps || FPS)) * mb) : 0;
     fs.want(s, rate, playing, blurSpan);
     const pr = fs.pair(s);
     if (!pr) return null;
@@ -504,7 +504,7 @@ class Engine {
       el.addEventListener(ev, done);
     });
     if (el.readyState < 1) await once('loadedmetadata', 5000);
-    if (el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - s) < 0.5 / FPS) return;
+    if (el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - s) < 0.5 / (this.outFps || FPS)) return;
     const seeked = once('seeked', 5000);
     el.currentTime = Math.max(0, s);
     await seeked;

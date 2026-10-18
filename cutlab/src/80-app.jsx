@@ -1277,8 +1277,12 @@ function App() {
     if (pathRef.current.length) { exitTo(0); notify('Voltando ao projeto para exportar a linha do tempo completa'); }
     setPlaying(false);
     setExportState({ stage: 'setup', ext: pickMime()[1] });
+    projectFps(rootRef.current, live.current.assetMap).then(({ suggest, source }) => { setExportFps(suggest); setSourceFps(source); });
   }, []);
   const [exportMethod, setExportMethod] = useState(() => (offlineExportSupported() ? 'offline' : 'realtime'));
+  // quadros por segundo da exportação: sugerido pelo vídeo mais fluido do projeto (antes era sempre 30)
+  const [exportFps, setExportFps] = useState(30);
+  const [sourceFps, setSourceFps] = useState(null);
   const [offlineProg, setOfflineProg] = useState({ p: 0, label: '' });
   const startOffline = async () => {
     setPlaying(false);
@@ -1291,11 +1295,11 @@ function App() {
       const root = rootRef.current;
       const r = await exportOffline({
         clips: root, assetMap: live.current.assetMap, trackState: exitStack.current[0]?.ts ?? live.current.trackState,
-        W, H, fps: FPS, duration: innerLength(root),
+        W, H, fps: exportFps, duration: innerLength(root),
         onProgress: (p, label) => setOfflineProg({ p, label }), isCancelled: () => job.cancelled,
       });
       if (job.cancelled) return;
-      setExportState({ stage: 'done', url: URL.createObjectURL(r.blob), ext: r.ext, size: r.blob.size, seconds: r.seconds, duration: innerLength(root), codec: r.codec, audio: r.audio, offline: true });
+      setExportState({ stage: 'done', url: URL.createObjectURL(r.blob), ext: r.ext, size: r.blob.size, seconds: r.seconds, duration: innerLength(root), codec: r.codec, audio: r.audio, fps: exportFps, offline: true });
     } catch (e) {
       if (!job.cancelled) { notify('Falha na exportação: ' + (e?.message || e)); setExportState((s) => s && { ...s, stage: 'setup' }); }
     } finally {
@@ -1513,6 +1517,7 @@ function App() {
           onSeek={(t) => { setPlaying(false); seek(selected.start + t); }} onClose={() => setCurveOpen(false)} />
       )}
       <ExportModal state={exportState} name={projectName} resolution={resolution} setResolution={setResolution} ratio={ratio}
+        fps={exportFps} setFps={setExportFps} sourceFps={sourceFps}
         method={exportMethod} setMethod={setExportMethod} offlineOk={offlineExportSupported()} offlineLabel={offlineProg.label}
         onStart={startExport} onCancel={cancelExport} onClose={() => setExportState(null)} progress={exportState?.offline ? offlineProg.p : duration ? time / duration : 0} />
       <InfoModal kind={info} onClose={() => setInfo(null)} />

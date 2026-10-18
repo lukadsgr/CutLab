@@ -26,6 +26,7 @@ async function analyzeFile(type, url, file) {
     });
   }
   if (type === 'video') {
+    const fps = file ? mediaFps(file) : Promise.resolve(null);   // em paralelo com a miniatura
     return new Promise((res, rej) => {
       const v = document.createElement('video');
       v.preload = 'auto';
@@ -39,7 +40,8 @@ async function analyzeFile(type, url, file) {
         const c = document.createElement('canvas');
         c.width = w; c.height = h;
         c.getContext('2d').drawImage(v, 0, 0, w, h);
-        res({ duration: isFinite(v.duration) ? v.duration : 10, width: v.videoWidth, height: v.videoHeight, thumb: c.toDataURL('image/jpeg', 0.7) });
+        const meta = { duration: isFinite(v.duration) ? v.duration : 10, width: v.videoWidth, height: v.videoHeight, thumb: c.toDataURL('image/jpeg', 0.7) };
+        fps.then((f) => res({ ...meta, fps: f }));
       };
       v.onerror = () => !done && rej(new Error('vídeo inválido'));
       v.src = url;

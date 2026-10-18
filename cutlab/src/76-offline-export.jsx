@@ -198,6 +198,7 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
   const ctx = cv.getContext('2d');
   const N = Math.max(1, Math.round(duration * fps));
   engine.beginOffline();
+  engine.outFps = fps;   // desfoque de movimento e tolerância de sincronia seguem a taxa de saída
   try {
     onProgress(0, 'Abrindo os vídeos…');
     await engine.warmSources(clips, assetMap);
@@ -218,6 +219,7 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
     if (failure) throw failure;
   } finally {
     engine.endOffline();
+    engine.outFps = null;
     try { venc.close(); } catch { /* já fechado */ }
   }
   onProgress(1, 'Finalizando…');
