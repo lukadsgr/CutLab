@@ -1049,11 +1049,24 @@ function App() {
 
   /* ---------- aba Ajuste: análises de quadro e ações em lote ---------- */
   const frameOf = (clip) => {
+    if (clip.type === 'adjust') {
+      // camada de ajuste: analisa a imagem que ela recebe — o quadro de agora sem ela e sem o que está acima
+      const t = timeRef.current, s = live.current, cv = canvasRef.current;
+      if (!cv || t < clip.start || t >= clip.start + clip.duration) return null;
+      const below = s.clips.filter((c) => c.id !== clip.id && !(c.track === 'effect' && laneOf(c) >= laneOf(clip)));
+      const f = tmpCanvas('adjFrame', cv.width, cv.height);
+      engine.render(f.getContext('2d'), f.width, f.height, t, below, s.assetMap, s.trackState);
+      return f;
+    }
     const { src, ready } = engine.source(clip, assetMap[clip.assetId], clip.props);
     if (clip.type === 'color') { const c = tmpCanvas('colorFrame', 4, 4), x = c.getContext('2d'); x.fillStyle = clip.props.color; x.fillRect(0, 0, 4, 4); return c; }
     return ready ? src : null;
   };
-  const needFrame = (clip) => { const f = frameOf(clip); if (!f) notify('Posicione o cursor sobre o clipe para analisar o quadro'); return f; };
+  const needFrame = (clip) => {
+    const f = frameOf(clip);
+    if (!f) notify(clip.type === 'adjust' ? 'Posicione a agulha sobre a camada de ajuste para analisar o quadro' : 'Posicione o cursor sobre o clipe para analisar o quadro');
+    return f;
+  };
   const colorApi = {
     notify,
     auto: (clip) => { const f = needFrame(clip); if (f) { setProps(clip.id, { autoOn: true, ...autoLevels(f) }); notify('Níveis e cores ajustados automaticamente'); } },
