@@ -34,7 +34,7 @@ async function dbTx(names, mode, fn) {
 const reqP = (rq) => new Promise((res, rej) => { rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
 
 /** campos da mídia que vão para o JSON (url/arquivo são recriados ao abrir) */
-const assetMeta = ({ url, file, loading, ...rest }) => (rest.type === 'image' ? { ...rest, thumb: undefined } : rest);
+const assetMeta = ({ url, file, loading, missing, ...rest }) => (rest.type === 'image' ? { ...rest, thumb: undefined } : rest);
 const assetBlob = async (a) => a.file || (await fetch(a.url)).blob();
 /** reconstrói uma mídia a partir dos metadados salvos e do conteúdo */
 const restoreAsset = (meta, blob) => {
@@ -42,6 +42,15 @@ const restoreAsset = (meta, blob) => {
   const url = URL.createObjectURL(file);
   return { ...meta, url, file, ...(meta.type === 'image' ? { thumb: url } : {}), loading: false };
 };
+/** mídia cujo arquivo não está à mão: fica na biblioteca até o usuário importar o arquivo de novo */
+const missingAsset = (meta) => ({ ...meta, ...(meta.type === 'image' ? { thumb: undefined } : {}), missing: true, loading: false });
+const mediaKind = (f) => (f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : f.type.startsWith('image') ? 'image' : null);
+/** a mídia que falta e que corresponde a este arquivo (mesmo nome e tamanho; na falta, só o nome) */
+function missingMatch(assets, f) {
+  const miss = assets.filter((a) => a.missing && a.type === mediaKind(f));
+  const nm = (a) => a.ref?.name || a.name;
+  return miss.find((a) => nm(a) === f.name && a.ref?.size === f.size) || miss.find((a) => nm(a) === f.name);
+}
 
 /** documento do projeto (só dados serializáveis) */
 function projectDoc(p) {
@@ -57,7 +66,7 @@ function projectDoc(p) {
 const savedBlobs = new Set();   // ids de mídia já gravados nesta sessão
 async function autosaveProject(p) {
   const doc = projectDoc(p);
-  const live = new Map(p.assets.filter((a) => !a.loading && !a.error).map((a) => [a.id, a]));
+  const live = new Map(p.assets.filter((a) => !a.loading && !a.error && !a.missing).map((a) => [a.id, a]));
   // confere o que já está gravado (o armazenamento pode ter sido limpo por fora durante a sessão)
   const stored = new Set(await dbTx(['blobs'], 'readonly', ({ blobs }) => reqP(blobs.getAllKeys())));
   for (const id of [...savedBlobs]) if (!stored.has(id)) savedBlobs.delete(id);
@@ -82,18 +91,30 @@ async function loadAutosave() {
     for (const meta of doc.assets || []) {
       const b = await reqP(blobs.get(meta.id));
       if (b) { assets.push(restoreAsset(meta, b)); savedBlobs.add(meta.id); }
+      else if (meta.ref) assets.push(missingAsset(meta));
     }
     return { ...doc, assets };
   });
 }
 
-/* ---------- arquivo .cutlab: "CUTL" + tamanho do JSON (uint32) + JSON + mídias em sequência ---------- */
-async function packProject(p) {
+/* ---------- arquivo .cutlab: "CUTL" + tamanho do JSON (uint32) + JSON + mídias em sequência ----------
+   Mídias grandes (vídeos, músicas) não vão dentro do arquivo: ficam só referenciadas (nome + tamanho) e
+   são religadas ao abrir — pelo salvamento automático deste navegador ou importando o arquivo de novo.
+   Com `withMedia`, tudo vai junto (pacote para levar o projeto a outro computador). */
+const EMBED_MAX = 20 * 1048576;
+async function packProject(p, { withMedia = false } = {}) {
   const doc = projectDoc(p);
   const parts = [];
   let off = 0;
   for (const meta of doc.assets) {
-    const b = await assetBlob(p.assets.find((a) => a.id === meta.id));
+    const a = p.assets.find((x) => x.id === meta.id);
+    if (a.missing) continue;   // continua só com a referência que já tinha
+    const b = await assetBlob(a);
+    if (!withMedia && b.size > EMBED_MAX) {
+      meta.ref = { name: a.file?.name || a.name, size: b.size };
+      continue;
+    }
+    delete meta.ref;
     meta.blob = { off, size: b.size, type: b.type };
     parts.push(b);
     off += b.size;
@@ -104,7 +125,8 @@ async function packProject(p) {
   head.setUint32(4, json.length, true);
   return new Blob([head, json, ...parts], { type: 'application/octet-stream' });
 }
-async function unpackProject(file) {
+/** abre um .cutlab; mídias só referenciadas são procuradas nas já abertas e no salvamento automático */
+async function unpackProject(file, current = []) {
   const head = new DataView(await file.slice(0, 8).arrayBuffer());
   const magic = String.fromCharCode(...[0, 1, 2, 3].map((i) => head.getUint8(i)));
   if (magic !== CUTLAB_MAGIC) throw new Error('Este arquivo não é um projeto do CutLab');
@@ -112,14 +134,20 @@ async function unpackProject(file) {
   const doc = JSON.parse(await file.slice(8, 8 + len).text());
   if (doc.version > PROJECT_VERSION) throw new Error('Projeto criado numa versão mais nova do CutLab');
   const base = 8 + len;
-  const assets = (doc.assets || []).map(({ blob, ...meta }) =>
-    restoreAsset(meta, file.slice(base + blob.off, base + blob.off + blob.size, blob.type)));
+  const assets = [];
+  for (const { blob, ...meta } of doc.assets || []) {
+    if (blob) { assets.push(restoreAsset(meta, file.slice(base + blob.off, base + blob.off + blob.size, blob.type))); continue; }
+    const { name, size } = meta.ref || {};
+    let b = current.find((a) => a.file && !a.missing && a.file.size === size && (a.id === meta.id || a.file.name === name))?.file;
+    if (!b) b = await dbTx(['blobs'], 'readonly', ({ blobs }) => reqP(blobs.get(meta.id))).catch(() => null);
+    assets.push(b && b.size === size ? restoreAsset(meta, b) : missingAsset(meta));
+  }
   return { ...doc, assets };
 }
 /** salva o arquivo (seletor nativo quando existe; senão, download) */
-async function saveProjectFile(p) {
+async function saveProjectFile(p, opts) {
   const fname = `${(p.name || 'projeto').replace(/[\\/:*?"<>|]+/g, '_')}.cutlab`;
-  const blob = await packProject(p);
+  const blob = await packProject(p, opts);
   if (window.showSaveFilePicker) {
     try {
       const h = await showSaveFilePicker({ suggestedName: fname, types: [{ description: 'Projeto CutLab', accept: { 'application/octet-stream': ['.cutlab'] } }] });

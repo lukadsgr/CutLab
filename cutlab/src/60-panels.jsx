@@ -25,6 +25,7 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
             {item('Novo projeto', menu.newProject)}
             {item('Abrir projeto…', menu.openProject, 'Ctrl+O')}
             {item('Salvar projeto…', menu.saveProject, 'Ctrl+S')}
+            {item('Salvar pacote com mídias…', menu.savePackage)}
             <div className="menu-sep" />
             {item('Importar mídia…', menu.importMedia, 'Ctrl+I')}
             {item('Exportar…', onExport, 'Ctrl+E', !canExport)}

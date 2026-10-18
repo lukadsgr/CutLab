@@ -107,6 +107,7 @@ function LeftPanel(props) {
 
   const visualAssets = assets.filter((a) => a.type !== 'audio');
   const audioAssets = assets.filter((a) => a.type === 'audio');
+  const missingCount = assets.filter((a) => a.missing).length;
   const sampleUrl = useMemo(() => sampleImages().a.toDataURL(), []);
   const previewImg = selectedAsset?.thumb || sampleUrl;
   const canFilter = selected && (selected.type === 'video' || selected.type === 'image' || selected.type === 'color');
@@ -121,10 +122,11 @@ function LeftPanel(props) {
       <div className="asset-name">{a.name}</div>
       {a.duration && a.type !== 'image' ? <span className="asset-badge">{fmtDur(a.duration)}</span> : null}
       {usedAssets.has(a.id) && <span className="asset-used" title={`Na linha do tempo (${usedAssets.get(a.id)} clipe${usedAssets.get(a.id) > 1 ? 's' : ''})`}><Icon name="check" size={11} stroke={3} /></span>}
-      {!a.loading && !a.error && <button className="asset-add" title="Adicionar à linha do tempo" onClick={() => onAddAsset(a)}><Icon name="plus" size={14} stroke={2.5} /></button>}
+      {!a.loading && !a.error && !a.missing && <button className="asset-add" title="Adicionar à linha do tempo" onClick={() => onAddAsset(a)}><Icon name="plus" size={14} stroke={2.5} /></button>}
       <button className="asset-del" title="Remover da biblioteca" onClick={() => onRemoveAsset(a.id)}><Icon name="x" size={11} stroke={2.5} /></button>
       {a.loading && <div className="asset-loading">Processando…</div>}
       {a.error && <div className="asset-loading">Formato não suportado</div>}
+      {a.missing && <div className="asset-loading" title="Importe este arquivo de novo para religá-lo">Arquivo não encontrado</div>}
     </div>
   );
   const audioRow = (a) => (
@@ -133,9 +135,9 @@ function LeftPanel(props) {
       <div className="li-text">
         <div className="li-name" title={a.name}>{a.name}</div>
         {a.peaks ? <MiniWave peaks={a.peaks} className="mini-wave" /> : null}
-        <div className="li-sub">{a.loading ? 'Processando…' : a.error ? 'Formato não suportado' : a.duration ? fmtDur(a.duration) : ''}</div>
+        <div className="li-sub">{a.loading ? 'Processando…' : a.error ? 'Formato não suportado' : a.missing ? 'Arquivo não encontrado — importe de novo' : a.duration ? fmtDur(a.duration) : ''}</div>
       </div>
-      {!a.loading && !a.error && <button className="icon-btn" title="Adicionar" onClick={() => onAddAsset(a)}><Icon name="plus" size={15} /></button>}
+      {!a.loading && !a.error && !a.missing && <button className="icon-btn" title="Adicionar" onClick={() => onAddAsset(a)}><Icon name="plus" size={15} /></button>}
       <button className="icon-btn li-del" title="Excluir áudio" onClick={(e) => { e.stopPropagation(); onRemoveAsset(a.id); }}><Icon name="trash" size={14} /></button>
     </div>
   );
@@ -167,6 +169,12 @@ function LeftPanel(props) {
         <div className="panel-title">Mídia local
           <button className="btn" onClick={() => openPicker('video/*,image/*,audio/*')}><Icon name="upload" size={14} /> Importar</button>
         </div>
+        {missingCount > 0 && (
+          <div className="hint" style={{ marginBottom: 10, color: 'var(--text)' }}>
+            {missingCount} mídia(s) do projeto não estão neste computador.{' '}
+            <button className="btn" style={{ marginTop: 6 }} onClick={() => openPicker('video/*,image/*,audio/*')}><Icon name="upload" size={14} /> Localizar arquivos</button>
+          </div>
+        )}
         {visualAssets.length === 0 ? (
           <div className="dropzone" onClick={() => openPicker('video/*,image/*,audio/*')}>
             <Icon name="upload" size={26} />

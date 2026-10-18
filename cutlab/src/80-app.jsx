@@ -85,7 +85,9 @@ function App() {
   const recRef = useRef(null);
   const offlineRef = useRef(null);   // exportação offline em andamento: { cancelled }
 
-  const assetMap = useMemo(() => Object.fromEntries(assets.map((a) => [a.id, a])), [assets]);
+  // mídias que faltam (projeto aberto sem o arquivo) ficam fora do motor até serem importadas de novo
+  const assetMap = useMemo(() => Object.fromEntries(assets.filter((a) => !a.missing).map((a) => [a.id, a])), [assets]);
+  const libMap = useMemo(() => Object.fromEntries(assets.map((a) => [a.id, a])), [assets]);
   const duration = useMemo(() => clips.reduce((m, c) => Math.max(m, c.start + c.duration), 0), [clips]);
   const q = RESOLUTIONS[resolution];
   const W = Math.round(RATIOS[ratio][0] * q), H = Math.round(RATIOS[ratio][1] * q);
@@ -193,7 +195,7 @@ function App() {
   }, [hist.set, select]);
 
   const addAsset = useCallback((asset, track, start, lane = 0) => {
-    if (asset.loading || asset.error) return;
+    if (asset.loading || asset.error || asset.missing) return;
     const tr = track && TRACKS.find((t) => t.id === track)?.accepts.includes(asset.type) ? track : defaultTrack(asset.type);
     addClip(makeClip(asset.type, {
       assetId: asset.id, track: tr, name: asset.name,
@@ -203,10 +205,21 @@ function App() {
   }, [addClip]);
 
   const importFiles = useCallback((files) => {
-    let n = 0;
+    let n = 0, relinked = 0;
+    const pending = projectRef.current.assets.filter((a) => a.missing);
     for (const f of files) {
-      const type = f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : f.type.startsWith('image') ? 'image' : null;
+      const type = mediaKind(f);
       if (!type) continue;
+      // arquivo de uma mídia que faltava no projeto aberto: religa em vez de importar de novo
+      const m = missingMatch(pending, f);
+      if (m) {
+        pending.splice(pending.indexOf(m), 1);
+        const { ref, ...meta } = assetMeta(m);
+        const back = restoreAsset(meta, f);
+        setAssets((a) => a.map((x) => (x.id === m.id ? back : x)));
+        relinked++;
+        continue;
+      }
       n++;
       const id = uid();
       const url = URL.createObjectURL(f);
@@ -215,7 +228,7 @@ function App() {
         .then((meta) => setAssets((a) => a.map((x) => (x.id === id ? { ...x, ...meta, loading: false } : x))))
         .catch(() => setAssets((a) => a.map((x) => (x.id === id ? { ...x, loading: false, error: true } : x))));
     }
-    notify(n ? `${n} arquivo(s) importado(s)` : 'Formato não suportado');
+    notify(relinked ? `${relinked} mídia(s) religada(s) ao projeto${n ? ` e ${n} importada(s)` : ''}` : n ? `${n} arquivo(s) importado(s)` : 'Formato não suportado');
   }, [notify]);
 
   /** remove da biblioteca e da linha do tempo inteira (inclusive de dentro dos compostos) */
@@ -862,19 +875,25 @@ function App() {
     }, 1000);
     return () => clearTimeout(t);
   }, [projectName, ratio, resolution, clips, assets, markers, trackState, guides, capStyle]);
-  const saveProject = useCallback(async () => {
+  const saveProject = useCallback(async (opts) => {
     try {
       notify('Preparando arquivo do projeto…');
-      const r = await saveProjectFile(projectRef.current);
-      if (r) notify(`Projeto salvo (${(r.size / 1048576).toFixed(1)} MB)`);
+      const r = await saveProjectFile(projectRef.current, opts);
+      if (r) notify(`Projeto salvo (${r.size < 1048576 ? Math.max(1, Math.round(r.size / 1024)) + ' KB' : (r.size / 1048576).toFixed(1) + ' MB'})`);
     } catch (e) { notify('Não foi possível salvar: ' + e.message); }
   }, [notify]);
+  const savePackage = useCallback(() => saveProject({ withMedia: true }), [saveProject]);
   const openProject = useCallback(() => {
     if (live.current.clips.length && !confirm('Abrir outro projeto? A edição atual será substituída (ela continua salva só se você salvou o arquivo).')) return;
     projectFileRef.current.click();
   }, []);
   const openProjectFile = async (f) => {
-    try { loadProject(await unpackProject(f)); notify(`“${f.name}” aberto`); }
+    try {
+      const doc = await unpackProject(f, projectRef.current.assets);
+      loadProject(doc);
+      const miss = doc.assets.filter((a) => a.missing).length;
+      notify(miss ? `“${f.name}” aberto — importe de novo ${miss} mídia(s) que faltam (aba Mídia)` : `“${f.name}” aberto`);
+    }
     catch (e) { notify(e.message || 'Arquivo de projeto inválido'); }
   };
 
@@ -1498,7 +1517,7 @@ function App() {
       <input ref={importRef} type="file" multiple hidden accept="video/*,image/*,audio/*" onChange={(e) => { importFiles([...e.target.files]); e.target.value = ''; }} />
       <input ref={projectFileRef} type="file" hidden accept=".cutlab" onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openProjectFile(f); }} />
       <TopBar name={projectName} setName={setProjectName} onExport={openExport} canExport={duration > 0} hist={hist} saveState={saveState}
-        menu={{ newProject, openProject, saveProject, copy: copyClip, cut: cutClip, paste: pasteClip, hasSelection: !!selectedId,
+        menu={{ newProject, openProject, saveProject, savePackage,copy: copyClip, cut: cutClip, paste: pasteClip, hasSelection: !!selectedId,
           compound: createCompound, ungroup: ungroupCompound, canCompound: multi.length > 0, canUngroup: isCompound(selected), clearMarkers, hasMarkers: markers.length > 0,
           importMedia: () => importRef.current.click(), deselect: () => select(null), shortcuts: () => setInfo('shortcuts'), about: () => setInfo('about') }} />
       <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
@@ -1531,7 +1550,7 @@ function App() {
           project={{ name: projectName, ratio, setRatio, duration, clipCount: clips.length, assetCount: assets.length }} />
       </div>
       <div className="resizer" onPointerDown={startResize} onDoubleClick={() => setTlH(330)} title="Arraste para redimensionar · clique duplo restaura" />
-      <Timeline clips={clips} assetMap={assetMap} time={time} duration={duration} playing={playing}
+      <Timeline clips={clips} assetMap={libMap}time={time} duration={duration} playing={playing}
         selectedId={selectedId} multi={multi} onSelect={select} onToggleSel={toggleSel} onSetSel={setSelection} selectedTr={selectedTr} onSelectTr={(id) => { setSelectedId(null); setSelectedTr(id); }}
         onSeek={(t) => { setPlaying(false); seek(t); }} setClip={setClip}
         onDropAsset={(id, track, start, lane) => assetMap[id] && addAsset(assetMap[id], track, dropStart(track, lane, start), lane)}

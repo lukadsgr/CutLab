@@ -57,7 +57,7 @@ const TEMPLATES = [
     } },
   { id: 'slideshow', name: 'Slideshow', cat: 'Vídeo', dur: 0, bg: 'linear-gradient(135deg,#ff2d46,#3a0610)', fg: '#fff', label: 'Fotos', needsMedia: true,
     build: ({ make, t0, assets }) => {
-      const vis = assets.filter((a) => a.type === 'image' || a.type === 'video').filter((a) => !a.loading && !a.error);
+      const vis = assets.filter((a) => a.type === 'image' || a.type === 'video').filter((a) => !a.loading && !a.error && !a.missing);
       if (!vis.length) return { error: 'Importe fotos ou vídeos na aba Mídia para usar este modelo.' };
       let t = t0;
       const clips = vis.map((a, i) => {
