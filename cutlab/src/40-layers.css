@@ -182,3 +182,7 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; }
 /* grupos (Ctrl+G): selo no clipe e borda tracejada quando o grupo não está selecionado */
 .clip-grp { display: inline-flex; align-items: center; padding: 1px 3px; border-radius: 3px; background: rgba(0,0,0,0.5); color: var(--accent); }
 .clip.grouped:not(.sel) { outline: 1px dashed rgba(255,255,255,0.35); outline-offset: -2px; }
+/* qualidade da prévia (barra do reprodutor): mesmo menu das camadas, na altura dos controles de zoom */
+.mini-dd.q-dd { flex: none; height: 26px; padding: 0 7px 0 9px; gap: 6px; border-radius: 7px; font: 500 11.5px 'Geist', sans-serif; color: var(--text); background: var(--panel-2); border-color: var(--border); }
+.dd-hint { display: block; font: 400 10px 'Geist Mono', monospace; color: var(--faint); margin-top: 1px; }
+.dd-item.on .dd-hint { color: var(--muted); }

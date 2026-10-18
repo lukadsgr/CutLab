@@ -188,7 +188,7 @@ class Engine {
     // elementos comandados neste quadro: qualquer outro é pausado no fim (ver abaixo)
     const driven = this._driven || (this._driven = new Set());
     driven.clear();
-    let stalled = false;
+    let stalled = false, master = null, mRank = 0;
     for (const c of clips) {
       if (!isMedia(c)) continue;
       // id repetido: um elemento só pode seguir um clipe (dois comandos brigariam a cada quadro)
@@ -220,6 +220,11 @@ class Engine {
             el.playbackRate = rate;
             el.play().catch(() => {});
           } else if (!el.seeking) {
+            // relógio mestre: a mídia em cena tocando (vídeo da Principal primeiro) dita o tempo da
+            // reprodução. Com o relógio do navegador separado, a diferença oscilava ~1 quadro e a
+            // velocidade era corrigida sem parar — cada correção é um soluço na imagem
+            const rank = !state.active || c.speedCurve || el.readyState < 3 ? 0 : (el.tagName === "VIDEO" ? 2 : 1) + (c.track === "main" ? 2 : 0);
+            if (rank > mRank) { mRank = rank; master = { c, el }; }
             // erro positivo = vídeo atrasado em relação à linha do tempo
             const err = state.src - el.currentTime;
             const fast = rate > 2;
@@ -251,11 +256,19 @@ class Engine {
     // recarregando ou clipes que acabaram de sair da linha do tempo ficariam tocando sozinhos,
     // somando-se ao som atual (áudio "duplicado")
     this.stalled = stalled;
+    this._master = master;
     for (const [id, el] of this.media) {
       if (driven.has(id) || el.paused) continue;
       el.pause();
       this.rates.delete(id);
     }
+  }
+  /** tempo da linha do tempo segundo a mídia mestre (ver sync), ou null */
+  clockTime() {
+    const m = this._master;
+    if (!m || m.el.paused || m.el.seeking || m.el.readyState < 3) return null;
+    const t = m.c.start + (m.el.currentTime - m.c.in) / m.c.speed;
+    return t >= m.c.start - 0.05 && t < m.c.start + m.c.duration + 0.05 ? t : null;
   }
   render(ctx, W, H, t, clips, assetMap, trackState, nested = false) {
     this.t = t;

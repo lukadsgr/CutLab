@@ -217,7 +217,7 @@ function LabelMenu({ at, current, onPick, onClose }) {
 }
 
 /** menu suspenso no estilo do CutLab (abre num portal para não ser cortado pela linha do tempo) */
-function Dropdown({ value, options, onChange, title }) {
+function Dropdown({ value, options, onChange, title, className = "mini-dd" }) {
   const [at, setAt] = useState(null);
   const btn = useRef(), list = useRef();
   const cur = options.find((o) => o.id === value) || options[0];
@@ -233,12 +233,12 @@ function Dropdown({ value, options, onChange, title }) {
   const open = () => {
     if (at) { setAt(null); return; }
     const r = btn.current.getBoundingClientRect();
-    const h = Math.min(300, options.length * 30 + 10);
+    const h = Math.min(300, options.length * (options.some((o) => o.hint) ? 38 : 30) + 10);
     const below = window.innerHeight - r.bottom > h + 8;
     setAt({ left: r.left, width: Math.max(r.width, 170), top: below ? r.bottom + 4 : r.top - h - 4 });
   };
   return (<>
-    <button ref={btn} className={`mini-dd ${at ? 'open' : ''} ${value ? 'set' : ''}`} onClick={open} title={title}>
+    <button ref={btn} className={`${className} ${at ? 'open' : ''} ${value ? 'set' : ''}`} onClick={open} title={title}>
       <span>{cur?.num ? `${cur.num}. ` : ''}{cur?.label}</span><Icon name="chevronD" size={11} stroke={2.2} />
     </button>
     {at && ReactDOM.createPortal(
@@ -247,7 +247,7 @@ function Dropdown({ value, options, onChange, title }) {
           <button key={o.id} className={`dd-item ${o.id === value ? 'on' : ''}`} onClick={() => { onChange(o.id); setAt(null); }} title={o.name || o.label}>
             <span className="dd-check">{o.id === value ? '✓' : ''}</span>
             {o.num != null && <span className="dd-num">{o.num}</span>}
-            <span className="dd-label">{o.name || o.label}</span>
+            <span className="dd-label">{o.name || o.label}{o.hint && <small className="dd-hint">{o.hint}</small>}</span>
           </button>
         ))}
       </div>, document.body)}

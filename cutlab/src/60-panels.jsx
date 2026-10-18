@@ -68,9 +68,9 @@ const RULER = 20; // espessura das réguas, em px
 /** qualidade da prévia (como no CapCut): o reprodutor desenha num quadro menor que o do projeto.
  *  `short` = lado menor máximo em px; a exportação usa sempre a resolução do projeto */
 const PREVIEW_Q = {
-  perf: { label: 'Desempenho', short: 360, tip: 'prévia em 360p, reprodução mais leve' },
-  auto: { label: 'Equilibrada', short: 540, tip: 'prévia em até 540p (padrão)' },
-  full: { label: 'Completa', short: Infinity, tip: 'prévia na resolução do projeto, mais pesada' },
+  perf: { label: 'Desempenho', short: 360, hint: '360p · mais leve', tip: 'prévia em 360p, reprodução mais leve' },
+  auto: { label: 'Equilibrada', short: 540, hint: 'até 540p · padrão', tip: 'prévia em até 540p (padrão)' },
+  full: { label: 'Completa', short: Infinity, hint: 'resolução do projeto', tip: 'prévia na resolução do projeto, mais pesada' },
 };
 const PREVIEW_STEPS = [360, 540, 720, 1080, 1440, 2160];
 /** tamanho do canvas da prévia: limitado pela qualidade e pelo tamanho em que ele aparece na tela */
@@ -368,9 +368,9 @@ function Player({ W, H, ratio, setRatio, canvasRef, overlayRef, time, duration, 
         <div className="zoom-ctl">
           <button className={`icon-btn ${rulers ? 'on' : ''}`} title="Réguas e guias (Shift R) — arraste da régua para criar guias" onClick={() => setRulers(!rulers)}><Icon name="ruler" size={15} /></button>
           <button className={`icon-btn ${hand ? 'on' : ''}`} title="Mão: arrastar a vista (H) · o botão do meio do mouse também move" onClick={() => setHand(!hand)}><Icon name="hand" size={15} /></button>
-          <select className="zoom-sel" value={quality} onChange={(e) => setQuality?.(e.target.value)} title={`Qualidade da prévia: ${PREVIEW_Q[quality]?.tip || ''} · agora ${PW}×${PH} · a exportação não muda`}>
-            {Object.entries(PREVIEW_Q).map(([k, q]) => <option key={k} value={k}>{q.label}</option>)}
-          </select>
+          <Dropdown className="mini-dd q-dd" value={quality} onChange={(v) => setQuality?.(v)}
+            title={`Qualidade da prévia: ${PREVIEW_Q[quality]?.tip || ''} · agora ${PW}×${PH} · a exportação não muda`}
+            options={Object.entries(PREVIEW_Q).map(([id, q]) => ({ id, label: q.label, hint: q.hint }))} />
           <button className="icon-btn" title="Diminuir zoom (Ctrl −)" onClick={() => step(-1)}><Icon name="zoomOut" size={15} /></button>
           <select className="zoom-sel" value="" onChange={(e) => (e.target.value === 'fit' ? fitView() : zoomTo(parseFloat(e.target.value)))} title="Zoom — Ctrl + roda do mouse no reprodutor">
             <option value="" hidden>{pct}%</option>

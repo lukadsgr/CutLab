@@ -152,6 +152,10 @@ function App() {
         // sozinho, o vídeo ficaria para trás e teria de saltar para alcançar — o "pulo de quadros"
         if (engine.stalled && held < 1.5) { held += dt; dt = 0; } else if (!engine.stalled) held = 0;
         let nt = timeRef.current + dt;
+        // com mídia tocando em cena, o tempo vem dela (relógio mestre): cada quadro do vídeo aparece
+        // uma vez, sem a correção de velocidade que fazia a imagem engasgar. Nunca anda para trás
+        const mt = engine.clockTime();
+        if (mt != null && Math.abs(mt - nt) < 0.25) nt = Math.max(timeRef.current, mt);
         const end = nt >= s.duration;
         if (end) {
           nt = s.duration;
@@ -160,9 +164,10 @@ function App() {
         }
         timeRef.current = nt;
         playClock.set(nt);
-        // o React (painéis, valores do inspetor) recebe o tempo só ~4×/s: cada atualização redesenha
-        // a interface inteira e os picos derrubavam quadros. Cursor e timecode andam pelo playClock
-        if (end || now - lastUi > 250) { lastUi = now; uiT = nt; setTimeState(nt); }
+        // o React (painéis, valores do inspetor) não recebe o tempo durante a reprodução: cada atualização
+        // redesenha a interface inteira e os picos derrubavam quadros. Cursor e timecode andam pelo
+        // playClock; ao pausar a interface recebe o tempo exato. Exportando, a barra de progresso anda 4×/s
+        if (end || (recRef.current && now - lastUi > 250)) { lastUi = now; uiT = nt; setTimeState(nt); }
       } else if (uiT !== timeRef.current) {
         // pausou (ou buscou): a interface fica com o tempo exato
         uiT = timeRef.current;
