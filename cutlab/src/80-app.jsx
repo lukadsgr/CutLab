@@ -129,43 +129,73 @@ function App() {
   // prévia "Completa" usa os arquivos originais; as outras, os proxies (ver 38-proxy)
   useEffect(() => { engine.noProxy = previewQ === 'full'; }, [previewQ]);
 
-  /* proxies de prévia: um vídeo por vez, em segundo plano (guardados neste navegador) */
+  /* proxies de prévia: só dos trechos que a linha do tempo usa, um por vez, em segundo plano
+     (guardados neste navegador). Editar gera só o pedaço que ainda não tem proxy */
   const assetsRef = useRef(assets);
   assetsRef.current = assets;
-  const proxyRun = useRef({ busy: false, seen: new Set() });
+  const [proxyWant, setProxyWant] = useState(() => new Map());
+  const proxyWantRef = useRef(proxyWant);
+  proxyWantRef.current = proxyWant;
+  // espera a edição assentar (1,5 s) antes de decidir: aparar um corte não dispara proxies a cada passo
+  useEffect(() => { const id = setTimeout(() => setProxyWant(usedRanges(rootHist.clips)), 1500); return () => clearTimeout(id); }, [rootHist.clips]);
+  const proxyRun = useRef({ busy: false, loaded: new Set(), need: new Map(), failed: new Set() });
   const [proxyTick, setProxyTick] = useState(0);
   useEffect(() => {
     const run = proxyRun.current;
     if (run.busy) return;
-    const a = assets.find((x) => x.type === 'video' && x.file && !x.loading && !x.missing && !x.error && !x.proxyUrl && !run.seen.has(x.id));
-    if (!a) return;
-    run.seen.add(a.id);
+    const ok = (x) => x.type === 'video' && x.file && !x.loading && !x.missing && !x.error;
+    let job = null;
+    for (const a of assets) {
+      if (!ok(a) || !proxyWant.has(a.id)) continue;
+      if (!run.loaded.has(a.id) || !run.need.has(a.id)) { job = { a, kind: 'load' }; break; }
+      if (!run.need.get(a.id)) continue;
+      const r = proxyWant.get(a.id).find((r) => !proxyCovering(a.proxies, r[2], r[3]) && !run.failed.has(`${a.id}:${r[0]}:${r[1]}`));
+      if (r) { job = { a, kind: 'make', r }; break; }
+    }
+    if (!job) return;
     run.busy = true;
+    const { a } = job;
+    const attach = (segs) => {
+      const add = segs.map((s) => { const file = new File([s.blob], `proxy-${a.id}.mp4`, { type: 'video/mp4' }); return { from: s.from, to: s.to, off: s.off, file, url: URL.createObjectURL(file) }; });
+      setAssets((as) => as.map((x) => {
+        if (x.id !== a.id) return x;
+        // um trecho novo engole os menores que ele cobre (os clipes passam a usar o novo)
+        const keep = (x.proxies || []).filter((o) => !add.some((n) => n.from <= o.from && n.to >= o.to && n !== o));
+        for (const o of (x.proxies || [])) if (!keep.includes(o)) { deleteProxySeg(a.id, o); setTimeout(() => URL.revokeObjectURL(o.url), 5000); }
+        return { ...x, proxies: [...add, ...keep] };
+      }));
+    };
     (async () => {
       try {
-        let blob = await loadProxyBlob(a.id);
-        if (!blob) {
-          if (!(await proxyNeed(a.file))) return;
-          proxyProgress.set(a.id, 0);
-          let last = 0;
-          blob = await makeProxy(a.file, {
-            onProgress: (q) => { if (q - last >= 0.01 || q === 1) { last = q; proxyProgress.set(a.id, q); } },
-            isCancelled: () => !assetsRef.current.some((x) => x.id === a.id),   // mídia removida no meio
-          });
-          saveProxyBlob(a.id, blob).catch(() => {});
+        if (job.kind === 'load') {
+          if (!run.loaded.has(a.id)) { run.loaded.add(a.id); const segs = await loadProxySegs(a.id); if (segs.length) attach(segs); }
+          if (!run.need.has(a.id)) run.need.set(a.id, await proxyNeed(a.file));
+          return;
         }
-        const proxyFile = new File([blob], 'proxy-' + a.id + '.mp4', { type: 'video/mp4' });
-        const proxyUrl = URL.createObjectURL(proxyFile);
-        setAssets((as) => as.map((x) => (x.id === a.id ? { ...x, proxyUrl, proxyFile } : x)));
+        const [from, to] = job.r;
+        proxyProgress.set(a.id, 0);
+        let last = 0;
+        const { blob, off } = await makeProxy(a.file, {
+          from, to,
+          onProgress: (q) => { if (q - last >= 0.01 || q === 1) { last = q; proxyProgress.set(a.id, q); } },
+          // mídia removida, ou o trecho saiu da linha do tempo no meio do caminho
+          isCancelled: () => !assetsRef.current.some((x) => x.id === a.id) || !(proxyWantRef.current.get(a.id) || []).some((w) => w[0] < to && w[1] > from),
+        });
+        const seg = { blob, from, to, off };
+        saveProxySeg(a.id, seg).catch(() => {});
+        attach([seg]);
       } catch (e) {
-        if (e?.name !== 'AbortError') console.warn('Proxy não gerado para', a.name, e);   // fica o original
+        if (job.kind === 'make' && e?.name !== 'AbortError') {
+          run.failed.add(`${a.id}:${job.r[0]}:${job.r[1]}`);
+          console.warn('Proxy não gerado para', a.name, e);   // esse trecho fica com o original
+        }
       } finally {
         proxyProgress.set(a.id, null);
         run.busy = false;
         setProxyTick((n) => n + 1);
       }
     })();
-  }, [assets, proxyTick]);
+  }, [assets, proxyWant, proxyTick]);
   // brilho que segue o cursor em cartões e botões (micro-interação)
   useEffect(() => {
     const mv = (e) => {

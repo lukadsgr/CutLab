@@ -573,9 +573,10 @@ function AutoCaptions({ onAuto, hasCaptions, time, selMedia }) {
 function ProxyBadge({ a }) {
   const p = useProxyProgress(a.id);
   if (p != null) return (
-    <div className="asset-proxy" title="Gerando uma cópia leve só para a prévia (cortes e buscas rápidos). A exportação usa o original.">
+    <div className="asset-proxy" title="Gerando uma cópia leve dos trechos usados na linha do tempo, só para a prévia (cortes e buscas rápidos). A exportação usa o original.">
       <i style={{ width: `${Math.round(p * 100)}%` }} /><span>Otimizando {Math.round(p * 100)}%</span>
     </div>);
-  if (a.proxyUrl) return <span className="asset-proxy-ok" title="A prévia usa uma cópia leve deste vídeo (proxy). A exportação e a prévia Completa usam o original.">PROXY</span>;
+  const n = a.proxies?.length || 0;
+  if (n) return <span className="asset-proxy-ok" title={`A prévia usa uma cópia leve dos trechos deste vídeo que estão na linha do tempo (${n} trecho${n > 1 ? 's' : ''}). A exportação e a prévia Completa usam o original.`}>PROXY</span>;
   return null;
 }

@@ -145,10 +145,17 @@ class Engine {
     } catch (e) { /* elemento já conectado */ }
   }
   /** proxy de prévia em uso para esta mídia? (nunca na exportação nem na prévia "Completa") */
-  proxyOn(a) { return !!a?.proxyUrl && !this.offline && !this.noProxy; }
+  proxyOn(a) { return !!a?.proxies?.length && !this.offline && !this.noProxy; }
+  /** trecho de proxy que cobre todo o pedaço do arquivo que este clipe usa (ou null: original) */
+  proxyFor(c, a) {
+    if (c.type !== 'video' || !this.proxyOn(a)) return null;
+    const x = srcTimeAt(c, 0), y = srcTimeAt(c, c.duration);
+    return proxyCovering(a.proxies, Math.min(x, y), Math.max(x, y));
+  }
   getMedia(clip, asset) {
     let el = this.media.get(clip.id);
-    const url = this.proxyOn(asset) ? asset.proxyUrl : asset.url;
+    const seg = this.proxyFor(clip, asset);
+    const url = seg ? seg.url : asset.url;
     // o proxy ficou pronto (ou a qualidade mudou): o elemento é refeito com o outro arquivo
     if (el && el._url !== url) { this.dropMedia(clip.id); el = null; }
     if (!el) {
@@ -157,6 +164,9 @@ class Engine {
       el.playsInline = true;
       el.src = url;
       el._url = url;
+      el._off = seg ? seg.off : 0;   // o proxy de um trecho começa em `off` do arquivo original
+      // tempo no arquivo original, qualquer que seja o arquivo tocando (o motor só pensa nele)
+      Object.defineProperty(el, 'srcTime', { get() { return this.currentTime + this._off; }, set(v) { this.currentTime = Math.max(0, v - this._off); } });
       el._seeks = 0;
       el.addEventListener('seeking', () => { el._seeks++; });   // contado pelo diagnóstico de reprodução
       this.media.set(clip.id, el);
@@ -261,7 +271,8 @@ class Engine {
       if (!(t >= b.start && t < b.start + 0.5)) continue;
       const ea = this.media.get(a.id), eb = this.media.get(b.id);
       if (!ea || ea === eb || ea.paused || ea.seeking || (eb && !eb.paused)) continue;
-      if (Math.abs(ea.currentTime - srcTimeAt(b, t - b.start)) > 0.25) continue;
+      if (ea._url !== (this.proxyFor(b, assetMap[b.assetId])?.url || assetMap[b.assetId]?.url)) continue;   // outro arquivo/trecho
+      if (Math.abs(ea.srcTime - srcTimeAt(b, t - b.start)) > 0.25) continue;
       this.swapMedia(a.id, b.id);
     }
     for (const c of clips) {
@@ -288,7 +299,7 @@ class Engine {
       // taxa variável e gravações de tela): além do fim não há o que tocar. Buscar/tocar ali fazia o
       // play() voltar ao início e buscar de novo a cada quadro — dezenas de buscas por segundo,
       // engasgando imagem e som. Passou do fim: fica parada no último quadro
-      const lim = isFinite(el.duration) && el.duration > 0 ? el.duration - 0.04 : Infinity;
+      const lim = isFinite(el.duration) && el.duration > 0 ? el._off + el.duration - 0.04 : Infinity;
       const cin = Math.min(c.in, lim);
       if (state && state.src > lim) state = { ...state, src: lim, play: false };
       if (state) {
@@ -303,7 +314,7 @@ class Engine {
           if (el.paused) {
             // já parado no ponto certo (pausa → play, corte sem pré-rolagem): buscar de novo só atrasaria
             // o início. Um pouco atrás (até 0,1 s) o relógio mestre absorve
-            const d = state.src - el.currentTime;
+            const d = state.src - el.srcTime;
             if (el.seeking) stalled = state.active || stalled;   // uma busca por vez: espera a atual terminar
             else if (el.readyState < 2 || d > 0.1 || d < -0.02) { this.seek(c.id, el, state.src, 'início'); stalled = state.active || stalled; }
             el.playbackRate = rate;
@@ -315,7 +326,7 @@ class Engine {
             const rank = !state.active || c.speedCurve || el.readyState < 3 ? 0 : (el.tagName === "VIDEO" ? 2 : 1) + (c.track === "main" ? 2 : 0);
             if (rank > mRank) { mRank = rank; master = { c, el }; }
             // erro positivo = vídeo atrasado em relação à linha do tempo
-            const err = state.src - el.currentTime;
+            const err = state.src - el.srcTime;
             const fast = rate > 2;
             if (Math.abs(err) > (fast ? rate * 0.6 : 0.3)) {
               // salto grande (travada, decodificador que não acompanha 10×): busca um pouco à frente
@@ -334,10 +345,10 @@ class Engine {
         } else {
           // clipe B de uma transição, prestes a começar: pré-rolagem como no corte seco (ver abaixo)
           const roll = playing && c.start > t && c.start - t <= this.playLat && !c.speedCurve && el.readyState >= 2 && !el.seeking;
-          if (roll && el.paused && Math.abs(el.currentTime - cin) < 0.03) { el.playbackRate = rate; this.startPlay(el); }
+          if (roll && el.paused && Math.abs(el.srcTime - cin) < 0.03) { el.playbackRate = rate; this.startPlay(el); }
           else if (!roll || el.paused) {
             if (!el.paused) el.pause();
-            if (!el.seeking && Math.abs(el.currentTime - state.src) > 0.03) this.seek(c.id, el, state.src, playing ? 'transição' : 'parado');
+            if (!el.seeking && Math.abs(el.srcTime - state.src) > 0.03) this.seek(c.id, el, state.src, playing ? 'transição' : 'parado');
           }
         }
       } else {
@@ -350,7 +361,7 @@ class Engine {
         // tocar (sem som) do ponto de entrada um pouco antes do corte — a antecedência é a latência
         // medida —, e no corte ele já está rodando em vez de congelar a imagem
         const roll = !inherit && playing && until > 0 && until <= this.playLat && !c.speedCurve && el.readyState >= 2 && !el.seeking;
-        if (roll && el.paused && Math.abs(el.currentTime - cin) < 0.03) {
+        if (roll && el.paused && Math.abs(el.srcTime - cin) < 0.03) {
           this.setVolume(c.id, el, 0);
           el.playbackRate = clamp(c.speed, 0.0625, 16);
           this.startPlay(el);
@@ -358,7 +369,7 @@ class Engine {
           if (!el.paused) el.pause();
           // pré-posiciona o próximo clipe para evitar quadro preto. Com antecedência: em gravações de tela
           // (quadros-chave espaçados) uma busca pode levar mais de um segundo
-          if (!inherit && until > 0 && until < 3 && !el.seeking && Math.abs(el.currentTime - cin) > 0.05) this.seek(c.id, el, cin, 'próximo');
+          if (!inherit && until > 0 && until < 3 && !el.seeking && Math.abs(el.srcTime - cin) > 0.05) this.seek(c.id, el, cin, 'próximo');
         }
       }
       // latência do play(): do comando até o tempo da mídia começar a andar (média móvel)
@@ -417,7 +428,7 @@ class Engine {
   clockTime() {
     const m = this._master;
     if (!m || m.el.paused || m.el.seeking || m.el.readyState < 3) return null;
-    const t = m.c.start + (m.el.currentTime - m.c.in) / m.c.speed;
+    const t = m.c.start + (m.el.srcTime - m.c.in) / m.c.speed;
     return t >= m.c.start - 0.05 && t < m.c.start + m.c.duration + 0.05 ? t : null;
   }
   render(ctx, W, H, t, clips, assetMap, trackState, nested = false) {
@@ -632,10 +643,8 @@ class Engine {
   /** fonte de quadros WebCodecs do arquivo (criada sob demanda) */
   frameSource(a) {
     if (!a?.file || !window.VideoDecoder) return null;
-    // na prévia, o motor quadro a quadro também lê o proxy (buscas rápidas); exportando, o original
-    const px = this.proxyOn(a) && a.proxyFile, key = px ? a.id + ':proxy' : a.id;
-    let fs = this.sources.get(key);
-    if (!fs) { fs = new FrameSource(px || a.file); this.sources.set(key, fs); }
+    let fs = this.sources.get(a.id);
+    if (!fs) { fs = new FrameSource(a.file); this.sources.set(a.id, fs); }
     return fs;
   }
   /** usa o motor exato quando a velocidade do clipe foi alterada */
@@ -772,7 +781,7 @@ class Engine {
       if (h.width !== w || h.height !== hh) { h.width = w; h.height = hh; }
       h.getContext('2d').drawImage(el, 0, 0, w, hh);
     }
-    el.currentTime = Math.max(0, t);
+    el.srcTime = t;
   }
   /** registra cada quadro apresentado (requestVideoFrameCallback) para interpolar câmera lenta */
   watchFrames(id, el) {

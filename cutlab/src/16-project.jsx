@@ -34,7 +34,7 @@ async function dbTx(names, mode, fn) {
 const reqP = (rq) => new Promise((res, rej) => { rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
 
 /** campos da mídia que vão para o JSON (url/arquivo são recriados ao abrir) */
-const assetMeta = ({ url, file, loading, missing, proxyUrl, proxyFile, ...rest }) => (rest.type === 'image' ? { ...rest, thumb: undefined } : rest);
+const assetMeta = ({ url, file, loading, missing, proxies, ...rest }) => (rest.type === 'image' ? { ...rest, thumb: undefined } : rest);
 const assetBlob = async (a) => a.file || (await fetch(a.url)).blob();
 /** reconstrói uma mídia a partir dos metadados salvos e do conteúdo */
 const restoreAsset = (meta, blob) => {
@@ -80,14 +80,28 @@ async function autosaveProject(p) {
     // remove mídias que saíram do projeto
     const keys = await reqP(blobs.getAllKeys());
     // proxies ('proxy:<id>') ficam enquanto a mídia estiver no projeto
-    for (const k of keys) if (!live.has(String(k).startsWith('proxy:') ? String(k).slice(6) : k)) blobs.delete(k);
+    for (const k of keys) if (!live.has(String(k).startsWith('proxy:') ? String(k).split(':')[1] : k)) blobs.delete(k);
   });
   for (const [id] of fresh) savedBlobs.add(id);
   for (const id of [...savedBlobs]) if (!live.has(id)) savedBlobs.delete(id);
 }
-/** proxy de prévia guardado neste navegador (ver 38-proxy) */
-const saveProxyBlob = (id, blob) => dbTx(['blobs'], 'readwrite', ({ blobs }) => { blobs.put(blob, 'proxy:' + id); });
-const loadProxyBlob = (id) => dbTx(['blobs'], 'readonly', ({ blobs }) => reqP(blobs.get('proxy:' + id))).catch(() => null);
+/* proxies de prévia guardados neste navegador (ver 38-proxy): um registro por trecho,
+   'proxy:<mídia>:<início>:<fim>' → { blob, from, to, off } */
+const proxyKey = (id, s) => `proxy:${id}:${s.from}:${s.to}`;
+const saveProxySeg = (id, s) => dbTx(['blobs'], 'readwrite', ({ blobs }) => { blobs.put({ blob: s.blob, from: s.from, to: s.to, off: s.off }, proxyKey(id, s)); });
+const deleteProxySeg = (id, s) => dbTx(['blobs'], 'readwrite', ({ blobs }) => { blobs.delete(proxyKey(id, s)); }).catch(() => {});
+async function loadProxySegs(id) {
+  return dbTx(['blobs'], 'readonly', async ({ blobs }) => {
+    const keys = (await reqP(blobs.getAllKeys())).filter((k) => String(k) === 'proxy:' + id || String(k).startsWith('proxy:' + id + ':'));
+    const out = [];
+    for (const k of keys) {
+      const v = await reqP(blobs.get(k));
+      if (v instanceof Blob) out.push({ blob: v, from: 0, to: Infinity, off: 0 });   // versão anterior: arquivo inteiro
+      else if (v?.blob) out.push(v);
+    }
+    return out;
+  }).catch(() => []);
+}
 async function loadAutosave() {
   return dbTx(['projects', 'blobs'], 'readonly', async ({ projects, blobs }) => {
     const doc = await reqP(projects.get('current'));
