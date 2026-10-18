@@ -1841,7 +1841,10 @@ function applyLinkage(before, after, movedId) {
  */
 const perfDiag = {
   on: false,
-  reset() { Object.assign(this, { n: 0, slow: 0, worst: 0, sum: 0, last: 0, lastT: 0, prev: null, hitches: [], recent: [] }); },
+  reset() {
+    Object.assign(this, { n: 0, slow: 0, worst: 0, sum: 0, last: 0, lastT: 0, prev: null, hitches: [], recent: [] });
+    for (const el of engine.media.values()) el._seeks = 0;
+  },
   frame(now, t, playing, syncMs, drawMs, clips) {
     if (!playing) { this.last = 0; return; }
     const gap = this.last ? now - this.last : 0;
@@ -1857,7 +1860,7 @@ const perfDiag = {
           const e = c.start + c.duration;
           if (e > a && e <= b) ev.push('saiu ' + nm(c));
         }
-        const seeking = [...engine.media.values()].filter((el) => el.seeking).length;
+        const seeking = [...engine.media.values()].filter((el) => el.seeking).map((el) => el._name || '?');
         this.hitches.push({ t: +t.toFixed(3), gap: Math.round(gap), sync: +syncMs.toFixed(1), draw: +drawMs.toFixed(1), prevDraw: this.prev ? +this.prev.toFixed(1) : null, ev, seeking, lat: +(engine.playLat * 1000).toFixed(0) });
         if (this.hitches.length > 200) this.hitches.shift();
       }
@@ -1866,7 +1869,10 @@ const perfDiag = {
   },
   report() {
     const c = canvasPreviewSize();
-    return JSON.stringify({ quadros: this.n, lentos: this.slow, medioMs: this.n ? +(this.sum / this.n).toFixed(1) : 0, piorMs: Math.round(this.worst), previa: c, dpr: window.devicePixelRatio, ua: navigator.userAgent, engasgos: this.hitches }, null, 1);
+    // buscas por mídia desde que o diagnóstico abriu: durante o play deveriam ser quase zero
+    const buscas = {};
+    for (const el of engine.media.values()) if (el._seeks) buscas[el._name || '?'] = (buscas[el._name || '?'] || 0) + el._seeks;
+    return JSON.stringify({ quadros: this.n, lentos: this.slow, buscas, medioMs: this.n ? +(this.sum / this.n).toFixed(1) : 0, piorMs: Math.round(this.worst), previa: c, dpr: window.devicePixelRatio, ua: navigator.userAgent, engasgos: this.hitches }, null, 1);
   },
 };
 perfDiag.reset();
@@ -1887,6 +1893,7 @@ function PerfHud({ onClose }) {
         <span><em>{fps}</em> qps</span>
         <span><em>{d.slow}</em> engasgos</span>
         <span><em>{Math.round(d.worst)}</em> ms pior</span>
+        <span title="Buscas nas mídias desde que o diagnóstico abriu (no play deveriam ser quase zero)"><em>{[...engine.media.values()].reduce((n, el) => n + (el._seeks || 0), 0)}</em> buscas</span>
         <span><em>{canvasPreviewSize()}</em></span>
       </div>
       <div className="perf-list">
@@ -1894,7 +1901,7 @@ function PerfHud({ onClose }) {
           : d.hitches.slice(-8).reverse().map((h, i) => (
             <div key={i} className="perf-row">
               <span className="perf-t">{fmt(h.t)}</span><span className="perf-gap">{h.gap} ms</span>
-              <span className="perf-ev">{h.ev.length ? h.ev.join(' · ') : 'sem troca'}{h.seeking ? ' · buscando' : ''}</span>
+              <span className="perf-ev" title={h.seeking.length ? 'Buscando: ' + h.seeking.join(', ') : ''}>{h.ev.length ? h.ev.join(' · ') : 'sem troca'}{h.seeking.length ? ' · buscando ' + h.seeking.length : ''}</span>
             </div>))}
       </div>
       <div className="perf-foot">

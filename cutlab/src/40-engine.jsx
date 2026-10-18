@@ -151,6 +151,8 @@ class Engine {
       el.preload = 'auto';
       el.playsInline = true;
       el.src = asset.url;
+      el._seeks = 0;
+      el.addEventListener('seeking', () => { el._seeks++; });   // contado pelo diagnóstico de reprodução
       this.media.set(clip.id, el);
       if (this.ac) this.attach(clip.id, el);
       if (el.tagName === 'VIDEO') this.watchFrames(clip.id, el);
@@ -250,6 +252,7 @@ class Engine {
       const a = assetMap[c.assetId];
       if (!a || a.loading) continue;
       const el = this.getMedia(c, a);
+      el._name = c.name || a.name || c.type;
       driven.add(c.id);
       const end = c.start + c.duration;
       let state = null;
@@ -259,6 +262,13 @@ class Engine {
         if (p.A === c && t >= end && t < p.to) state = { src: srcTimeAt(c, c.duration - FRAME), play: false };
         if (p.B === c && t < c.start && t >= p.from) state = { src: c.in, play: false };
       }
+      // fim real da mídia. A duração vem dos metadados e pode ser maior que o arquivo (comum em MP3 de
+      // taxa variável e gravações de tela): além do fim não há o que tocar. Buscar/tocar ali fazia o
+      // play() voltar ao início e buscar de novo a cada quadro — dezenas de buscas por segundo,
+      // engasgando imagem e som. Passou do fim: fica parada no último quadro
+      const lim = isFinite(el.duration) && el.duration > 0 ? el.duration - 0.04 : Infinity;
+      const cin = Math.min(c.in, lim);
+      if (state && state.src > lim) state = { ...state, src: lim, play: false };
       if (state) {
         const rate = clamp(state.rate || c.speed, 0.0625, 16);
         this.rates.set(c.id, { rate, playing: !!state.play });
@@ -272,7 +282,8 @@ class Engine {
             // já parado no ponto certo (pausa → play, corte sem pré-rolagem): buscar de novo só atrasaria
             // o início. Um pouco atrás (até 0,1 s) o relógio mestre absorve
             const d = state.src - el.currentTime;
-            if (el.readyState < 2 || d > 0.1 || d < -0.02) { this.seek(c.id, el, state.src); stalled = state.active || stalled; }
+            if (el.seeking) stalled = state.active || stalled;   // uma busca por vez: espera a atual terminar
+            else if (el.readyState < 2 || d > 0.1 || d < -0.02) { this.seek(c.id, el, state.src); stalled = state.active || stalled; }
             el.playbackRate = rate;
             this.startPlay(el);
           } else if (!el.seeking) {
@@ -286,7 +297,7 @@ class Engine {
             const fast = rate > 2;
             if (Math.abs(err) > (fast ? rate * 0.6 : 0.3)) {
               // salto grande (travada, decodificador que não acompanha 10×): busca um pouco à frente
-              this.seek(c.id, el, state.src + Math.min(0.3, rate * 0.05));
+              this.seek(c.id, el, Math.min(lim, state.src + Math.min(0.3, rate * 0.05)));
               el.playbackRate = rate;
             } else if (Math.abs(err) < 0.03) {
               // sincronizado: velocidade exata. Mudar a velocidade estica o som (preservesPitch)
@@ -301,7 +312,7 @@ class Engine {
         } else {
           // clipe B de uma transição, prestes a começar: pré-rolagem como no corte seco (ver abaixo)
           const roll = playing && c.start > t && c.start - t <= this.playLat && !c.speedCurve && el.readyState >= 2 && !el.seeking;
-          if (roll && el.paused && Math.abs(el.currentTime - c.in) < 0.03) { el.playbackRate = rate; this.startPlay(el); }
+          if (roll && el.paused && Math.abs(el.currentTime - cin) < 0.03) { el.playbackRate = rate; this.startPlay(el); }
           else if (!roll || el.paused) {
             if (!el.paused) el.pause();
             if (!el.seeking && Math.abs(el.currentTime - state.src) > 0.03) this.seek(c.id, el, state.src);
@@ -313,14 +324,14 @@ class Engine {
         // tocar (sem som) do ponto de entrada um pouco antes do corte — a antecedência é a latência
         // medida —, e no corte ele já está rodando em vez de congelar a imagem
         const roll = playing && until > 0 && until <= this.playLat && !c.speedCurve && el.readyState >= 2 && !el.seeking;
-        if (roll && el.paused && Math.abs(el.currentTime - c.in) < 0.03) {
+        if (roll && el.paused && Math.abs(el.currentTime - cin) < 0.03) {
           this.setVolume(c.id, el, 0);
           el.playbackRate = clamp(c.speed, 0.0625, 16);
           this.startPlay(el);
         } else if (!roll || el.paused) {
           if (!el.paused) el.pause();
           // pré-posiciona o próximo clipe para evitar quadro preto
-          if (until > 0 && until < 1.5 && !el.seeking && Math.abs(el.currentTime - c.in) > 0.05) el.currentTime = c.in;
+          if (until > 0 && until < 1.5 && !el.seeking && Math.abs(el.currentTime - cin) > 0.05) el.currentTime = cin;
         }
       }
       // latência do play(): do comando até o tempo da mídia começar a andar (média móvel)
