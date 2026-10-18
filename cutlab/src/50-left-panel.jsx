@@ -381,7 +381,7 @@ function parseSrt(text) {
 }
 const toSrt = (caps) => caps.map((c, i) => `${i + 1}\n${srtTime(c.start)} --> ${srtTime(c.start + c.duration)}\n${c.props.text}\n`).join('\n');
 
-function CaptionsPanel({ cat, list, time, onAdd, onUpdate, onRemove, onSeek, onImport, onScript, onStyle, styleId, onAuto }) {
+function CaptionsPanel({ cat, list, time, onAdd, onUpdate, onRemove, onSeek, onImport, onScript, onStyle, styleId, onAuto, selMedia }) {
   const [script, setScript] = useState('');
   const [cps, setCps] = useState(15);
   const srtRef = useRef();
@@ -392,7 +392,7 @@ function CaptionsPanel({ cat, list, time, onAdd, onUpdate, onRemove, onSeek, onI
     a.download = 'legendas.srt';
     a.click();
   };
-  if (cat === 'auto') return <AutoCaptions onAuto={onAuto} hasCaptions={list.length > 0} />;
+  if (cat === 'auto') return <AutoCaptions onAuto={onAuto} hasCaptions={list.length > 0} time={time} selMedia={selMedia} />;
   if (cat === 'styles') {
     return (<>
       <div className="panel-title">Estilo das legendas</div>
@@ -452,7 +452,8 @@ function CaptionsPanel({ cat, list, time, onAdd, onUpdate, onRemove, onSeek, onI
 }
 
 /* ---------- Legendas automáticas (transcrição) ---------- */
-function AutoCaptions({ onAuto, hasCaptions }) {
+function AutoCaptions({ onAuto, hasCaptions, time, selMedia }) {
+  const [scope, setScope] = useState('all');   // all | playhead | clip
   const [lang, setLang] = useState('portuguese');
   const [model, setModel] = useState('rapido');
   const [lines, setLines] = useState(1);
@@ -463,13 +464,28 @@ function AutoCaptions({ onAuto, hasCaptions }) {
   const [job, setJob] = useState(null);   // { stage, p } enquanto roda
   const run = async () => {
     setJob({ stage: 'Começando…', p: 0 });
-    try { await onAuto({ lang, model, lines, karaoke, hlMode, hlColor, replace }, (stage, p) => setJob({ stage, p })); }
+    try { await onAuto({ scope, lang, model, lines, karaoke, hlMode, hlColor, replace }, (stage, p) => setJob({ stage, p })); }
     finally { setJob(null); }
   };
   return (<>
     <div className="panel-title">Legendas automáticas</div>
     <div className="hint" style={{ marginBottom: 12 }}>
       A fala do projeto é transcrita aqui mesmo no navegador (nada é enviado para servidores). O modelo é baixado só na primeira vez.
+    </div>
+    <div className="field">
+      <div className="field-top"><label>O que legendar</label></div>
+      <div className="seg">
+        <button className={scope === 'all' ? 'on' : ''} disabled={!!job} onClick={() => setScope('all')}>Tudo</button>
+        <button className={scope === 'playhead' ? 'on' : ''} disabled={!!job} onClick={() => setScope('playhead')} title="Da linha vermelha da linha do tempo até o fim">Da agulha</button>
+        <button className={scope === 'clip' ? 'on' : ''} disabled={!!job} onClick={() => setScope('clip')} title="Só o trecho do clipe selecionado na linha do tempo">Clipe selecionado</button>
+      </div>
+      <div className="hint" style={{ marginTop: 6 }}>
+        {scope === 'all' && 'A fala da linha do tempo inteira.'}
+        {scope === 'playhead' && `A partir de ${fmt(time)} (linha vermelha) até o fim.`}
+        {scope === 'clip' && (selMedia
+          ? `Só ${selMedia.count > 1 ? `os ${selMedia.count} clipes selecionados` : `“${selMedia.name}”`}: ${fmt(selMedia.start)} – ${fmt(selMedia.end)}.`
+          : 'Selecione na linha do tempo o clipe de vídeo ou áudio que quer legendar.')}
+      </div>
     </div>
     <div className="field">
       <div className="field-top"><label>Idioma falado</label></div>
@@ -501,14 +517,14 @@ function AutoCaptions({ onAuto, hasCaptions }) {
         <input type="color" className="color" value={hlColor} onChange={(e) => setHlColor(e.target.value)} title="Cor do destaque" />
       </div>
     )}
-    {hasCaptions && <label className="check-row"><input type="checkbox" checked={replace} disabled={!!job} onChange={(e) => setReplace(e.target.checked)} /> Substituir as legendas atuais</label>}
+    {hasCaptions && <label className="check-row"><input type="checkbox" checked={replace} disabled={!!job} onChange={(e) => setReplace(e.target.checked)} /> {scope === 'all' ? 'Substituir as legendas atuais' : 'Substituir as legendas deste trecho'}</label>}
     {job ? (
       <div style={{ marginTop: 12 }}>
         <div className="progress"><div style={{ width: `${Math.round(job.p * 100)}%` }} /></div>
         <div className="hint" style={{ marginTop: 6 }}>{job.stage}</div>
       </div>
     ) : (
-      <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={run}><Icon name="wand" size={15} /> Gerar legendas automáticas</button>
+      <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={run} disabled={scope === 'clip' && !selMedia}><Icon name="wand" size={15} /> Gerar legendas automáticas</button>
     )}
   </>);
 }

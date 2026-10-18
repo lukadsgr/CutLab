@@ -729,8 +729,22 @@ function App() {
   /* ---------- legendas ---------- */
   const captionList = useMemo(() => clips.filter((c) => c.track === 'caption').sort((a, b) => a.start - b.start), [clips]);
   const makeCaption = (text, start, dur) => ({ ...makeClip('text', { track: 'caption', name: 'Legenda', duration: dur, props: { ...capStyle.style, text, y: 78 } }), start });
+  /** clipes de vídeo/áudio selecionados (clique e Ctrl+clique) */
+  const selMediaClips = (cs) => {
+    const ids = new Set([...live.current.multi, live.current.selectedId].filter(Boolean));
+    const sel = cs.filter((c) => ids.has(c.id) && isMedia(c));
+    // vídeo com o áudio extraído: o som está no clipe de áudio do mesmo arquivo que começa junto
+    const extracted = cs.filter((a) => a.type === 'audio' && !ids.has(a.id)
+      && sel.some((v) => v.type === 'video' && v.assetId === a.assetId && Math.abs(v.start - a.start) < 1e-3));
+    return [...sel, ...extracted];
+  };
+  const selMedia = useMemo(() => {
+    const sel = selMediaClips(clips);
+    if (!sel.length) return null;
+    return { count: sel.filter((c) => c.id === selectedId || multi.includes(c.id)).length, name: sel[0].name, start: Math.min(...sel.map((c) => c.start)), end: Math.max(...sel.map((c) => c.start + c.duration)) };
+  }, [clips, selectedId, multi]);
   const captions = {
-    list: captionList, time, styleId: capStyle.id,
+    list: captionList, time, styleId: capStyle.id, selMedia,
     onAdd: () => { const c = makeCaption('Nova legenda', timeRef.current, 2); hist.set((cs) => [...cs, c]); select(c.id); },
     onUpdate: (id, text) => setProps(id, { text }, `cap:${id}`),
     onRemove: (id) => hist.set((cs) => cs.filter((c) => c.id !== id)),
@@ -757,15 +771,30 @@ function App() {
     onAuto: async (o, onStage) => {
       const { clips: cs, assetMap: am, trackState: ts, duration: dur } = live.current;
       if (dur <= 0) { notify('A linha do tempo está vazia'); return; }
+      // trecho: tudo, da agulha até o fim, ou só o(s) clipe(s) de mídia selecionado(s) (ouvindo só eles)
+      let from = 0, to = dur, src = cs;
+      if (o.scope === 'playhead') {
+        from = clamp(timeRef.current, 0, dur);
+        if (dur - from < 0.3) { notify('A agulha está no fim da linha do tempo'); return; }
+      } else if (o.scope === 'clip') {
+        const sel = selMediaClips(cs);
+        if (!sel.length) { notify('Selecione um clipe de vídeo ou áudio na linha do tempo'); return; }
+        from = Math.min(...sel.map((c) => c.start));
+        to = Math.max(...sel.map((c) => c.start + c.duration));
+        src = sel;
+      }
       setPlaying(false);
       try {
-        const words = await transcribeProject({ clips: cs, assetMap: am, trackState: ts, to: dur, lang: o.lang, model: o.model, onStage });
+        const words = (await transcribeProject({ clips: src, assetMap: am, trackState: ts, from, to, lang: o.lang, model: o.model, onStage }))
+          .filter((w) => w.s < to && w.e > from);
         if (!words.length) { notify('Nenhuma fala reconhecida'); return; }
         const made = wordsToCaptions(words, { lines: o.lines }).map((g) => {
           const c = makeCaption(g.text, g.start, g.end - g.start);
           return o.karaoke ? { ...c, props: { ...c.props, words: g.words, karaoke: true, hlMode: o.hlMode, hlColor: o.hlColor } } : c;
         });
-        hist.set((xs) => [...(o.replace ? xs.filter((c) => c.track !== 'caption') : xs), ...made]);
+        // substitui só as legendas que tocam o trecho transcrito
+        const inRange = (c) => c.track === 'caption' && c.start < to && c.start + c.duration > from;
+        hist.set((xs) => [...(o.replace ? xs.filter((c) => !inRange(c)) : xs), ...made]);
         notify(`${made.length} legenda(s) criada(s) a partir de ${words.length} palavras`);
       } catch (e) {
         notify('Não foi possível transcrever: ' + (e?.message || e));
