@@ -840,20 +840,26 @@ function PenSection({ clip, p, local, S, sp, penApi }) {
   </>);
 }
 
-function TransitionPanel({ pair, onType, onDuration, onRemove, onAll }) {
+function TransitionPanel({ pair, onType, onDuration, onRemove, onAll, onEdit, onNew }) {
   const { A, B, type } = pair;
   const max = Math.max(0.1, Math.min(A.duration, B.duration, 3));
+  const trV = useTransitionsVersion();
+  const cur = TRANSITION_MAP[type];
   return (
     <aside className="inspector">
       <div className="insp-head"><h3>Transição · {TRANSITION_MAP[type]?.name}</h3><div className="sub">no corte em {fmt(B.start)}</div></div>
       <div />
       <div className="insp-body">
         <Slider label="Duração (s)" value={Math.min(B.transition.duration, max)} min={0.1} max={max} step={0.1} onChange={onDuration} />
+        <div className="row" style={{ gap: 8, margin: '4px 0 10px', flexWrap: 'wrap' }}>
+          {cur?.def && <button className="btn" onClick={() => onEdit(type)}><Icon name="pen" size={14} /> {cur.cat === USER_TR_CAT ? 'Editar transição' : 'Editar uma cópia'}</button>}
+          <button className="btn" onClick={onNew}><Icon name="plus" size={14} /> Criar transição</button>
+        </div>
         <div className="section-label">Tipo</div>
         <div className="tr-grid">
           {TRANSITIONS.map((t) => (
             <button key={t.id} className={`tr-opt ${t.id === type ? 'on' : ''}`} onClick={() => onType(t.id)}>
-              <FxThumb kind="transition" id={t.id} />
+              <FxThumb key={`${t.id}:${trV}`} kind="transition" id={t.id} />
               <span>{t.name}</span>
             </button>
           ))}

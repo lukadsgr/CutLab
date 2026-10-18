@@ -100,7 +100,7 @@ Object.assign(Engine.prototype, {
         const o = O.getContext('2d');
         o.clearRect(0, 0, W, H);
         o.save();
-        (TRANSITION_MAP[tr.type] || TRANSITIONS[0]).fn(o, A, B, (t - tr.from) / (tr.to - tr.from), W, H);
+        (TRANSITION_MAP[tr.type] || TRANSITIONS[0]).fn(o, A, B, (t - tr.from) / (tr.to - tr.from), W, H, tr.d);
         o.restore();
         target.drawImage(O, 0, 0);
         list = list.filter((c) => c !== tr.A && c !== tr.B);

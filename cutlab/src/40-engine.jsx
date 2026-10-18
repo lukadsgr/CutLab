@@ -254,7 +254,7 @@ class Engine {
           this.drawClip(x, clip, assetMap[clip.assetId], tc, W, H, k);
         }
         ctx.save();
-        (TRANSITION_MAP[tr.type] || TRANSITIONS[0]).fn(ctx, A, B, p, W, H);
+        (TRANSITION_MAP[tr.type] || TRANSITIONS[0]).fn(ctx, A, B, p, W, H, tr.d);
         ctx.restore();
         list = list.filter((c) => c !== tr.A && c !== tr.B);
       }

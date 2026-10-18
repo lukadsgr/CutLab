@@ -3,7 +3,7 @@
    ===================================================================== */
 // largura do painel de camadas: estado `hw` dentro da Timeline (redimensionável)
 
-function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, onMenu, label: labelColor, locked }) {
+function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, onMenu, label: labelColor, locked, dragging }) {
   const left = c.start * pps;
   const width = Math.max(4, c.duration * pps);
   let wave = null;
@@ -20,7 +20,7 @@ function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, onMenu, l
   const icon = { text: 'type', effect: 'sparkles', adjust: 'sliders', compound: 'layers' }[c.type];
   const times = kfTimes(c);
   return (
-    <div data-id={c.id} className={`clip clip-${c.type} ${c.track === 'caption' ? 'clip-caption' : ''} ${selected ? 'sel' : ''} ${locked ? 'locked' : ''}`} style={{ left, width, "--label": labelColor }} onPointerDown={(e) => onDown(e, c, 'move')}
+    <div data-id={c.id} className={`clip clip-${c.type} ${c.track === 'caption' ? 'clip-caption' : ''} ${selected ? 'sel' : ''} ${locked ? 'locked' : ''} ${dragging ? 'dragging' : ''}`} style={{ left, width, "--label": labelColor }} onPointerDown={(e) => onDown(e, c, 'move')}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onMenu?.(e, c); }}
       onDoubleClick={c.type === 'compound' ? () => onOpen(c.id) : undefined} title={c.type === 'compound' ? 'Clique duplo para editar por dentro' : undefined}>
       {(c.type === 'video' || c.type === 'image') && asset?.thumb && <div className="clip-thumbs" style={{ backgroundImage: `url(${asset.thumb})` }} />}
@@ -47,6 +47,34 @@ function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, onMenu, l
       <div className="handle r" onPointerDown={(e) => onDown(e, c, 'right')} />
     </div>
   );
+}
+
+/** arraste com inserção: o clipe `id` (duração D) quer começar em `ns` na linha (track, lane).
+ *  Os vizinhos dessa linha abrem espaço — nunca fica um clipe sobre o outro na mesma camada:
+ *  - Principal com ímã: tudo encostado; ele entra no vão mais próximo (pelo meio dos clipes);
+ *  - demais linhas: encaixa logo depois do vizinho da esquerda e quem está à direita só anda o necessário.
+ *  Devolve { slot, starts }: onde ele entra e o novo início de cada vizinho que precisou andar. */
+function insertLayout(base, id, track, lane, ns, D, packed) {
+  const row = base.filter((c) => c.id !== id && c.track === track && laneOf(c) === lane).sort((a, b) => a.start - b.start);
+  const mid = ns + D / 2;
+  const starts = new Map();
+  if (packed) {
+    let t = 0, slot = null;
+    for (const c of row) {
+      if (slot == null && mid < c.start + c.duration / 2) { slot = t; t += D; }
+      if (Math.abs(c.start - t) > 1e-4) starts.set(c.id, t);
+      t += c.duration;
+    }
+    return { slot: slot ?? t, starts };
+  }
+  const left = row.filter((c) => c.start + c.duration / 2 <= mid);
+  const slot = Math.max(ns, 0, ...left.map((c) => c.start + c.duration));
+  let cur = slot + D;
+  for (const c of row) {
+    if (left.includes(c)) continue;
+    if (c.start < cur - 1e-4) { starts.set(c.id, cur); cur += c.duration; } else cur = c.start + c.duration;
+  }
+  return { slot, starts };
 }
 
 function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi = [], onSelect, onToggleSel, onSetSel, selectedTr, onSelectTr, onSeek, setClip,
@@ -105,6 +133,9 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
+  const [dragId, setDragId] = useState(null);       // clipe sendo arrastado (fica por cima, meio transparente)
+  const [dropSlot, setDropSlot] = useState(null);   // { rk, start, dur }: onde ele vai entrar ao soltar
+  const [scrollX, setScrollX] = useState(0);         // linhas verticais não passam por baixo do painel de camadas
   const [extraRows, setExtraRows] = useState([]); // durante o arraste: camadas fixadas + linha "nova camada"
   // arrastando algo da biblioteca/painéis: mostra (vazias) só as faixas que aceitam aquele item
   const [libDrag, setLibDrag] = useState(null);
@@ -178,6 +209,27 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); up && up(); };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+  };
+  /** arraste que rola a linha do tempo sozinho quando o mouse encosta na borda esquerda/direita */
+  const onEdgeDrag = (move, up) => {
+    let last = null, raf = 0;
+    const EDGE = 56;
+    const tick = () => {
+      raf = 0;
+      const el = scrollRef.current;
+      if (!last || !el) return;
+      const r = el.getBoundingClientRect(), lo = r.left + hw, hi = r.right;
+      // mais perto (ou além) da borda = mais rápido
+      const v = last.clientX < lo + EDGE ? -Math.min(40, 3 + (lo + EDGE - last.clientX) / 2.5)
+        : last.clientX > hi - EDGE ? Math.min(40, 3 + (last.clientX - (hi - EDGE)) / 2.5) : 0;
+      if (!v) return;
+      const before = el.scrollLeft;
+      el.scrollLeft = Math.max(0, before + v);
+      if (el.scrollLeft !== before) move(last);   // o conteúdo andou sob o mouse: recalcula a posição
+      raf = requestAnimationFrame(tick);
+    };
+    onWindowDrag((ev) => { last = ev; move(ev); if (!raf) raf = requestAnimationFrame(tick); },
+      () => { last = null; cancelAnimationFrame(raf); up && up(); });
   };
 
   const [phSnap, setPhSnap] = useState(false);
@@ -254,7 +306,14 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
       for (const p of points) { const d = Math.abs(p - v); if (d < bd) { bd = d; best = p; } }
       return best;
     };
-    let moved = false;
+    let moved = false, slot = null;
+    const base = clips;   // como estava ao pegar o clipe: os vizinhos se afastam a partir daqui
+    const scroll0 = scrollRef.current.scrollLeft;
+    const packedRow = (tr) => tr === 'main' && tools.mainMagnet;
+    // vizinhos da mesma linha: aparar nunca passa por cima deles
+    const row = base.filter((c) => c.id !== clip.id && clipRow(c) === clipRow(clip));
+    const prevEnd = Math.max(0, ...row.filter((c) => c.start + c.duration <= o.start + 1e-3).map((c) => c.start + c.duration));
+    const nextStart = Math.min(Infinity, ...row.filter((c) => c.start >= o.start + o.duration - 1e-3).map((c) => c.start));
     // onde o mouse pegou o clipe, relativo ao topo da faixa dele
     const homeTop = scrollRef.current.querySelector(`.tl-lane[data-track="${o.track}"][data-lane="${laneOf(o)}"]`)?.getBoundingClientRect().top ?? sy;
     // linhas existentes ficam fixas durante o arraste e aparece uma linha vazia acima para criar nova camada
@@ -262,13 +321,15 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     const pinned = clips.map((c) => ({ track: c.track, lane: laneOf(c) }));
     const used = clips.filter((c) => c.track === ghostTrack);
     const ghost = { track: ghostTrack, lane: used.length ? Math.max(...used.map(laneOf)) + 1 : 0, ghost: true };
-    onWindowDrag((ev) => {
-      const dt = (ev.clientX - sx) / pps;
+    onEdgeDrag((ev) => {
+      // a rolagem automática também conta como deslocamento
+      const dt = (ev.clientX - sx + scrollRef.current.scrollLeft - scroll0) / pps;
       if (!moved && mode === 'move' && Math.abs(ev.clientX - sx) < 3 && Math.abs(ev.clientY - sy) < 6) return;
       if (!moved && mode === 'move') {
         const node = scrollRef.current.querySelector(`.clip[data-id="${clip.id}"]`);
         if (node) anchorRef.current = { id: clip.id, top: node.getBoundingClientRect().top };
         setExtraRows([...pinned, ghost]);
+        setDragId(clip.id);
       }
       moved = true;
       if (mode === 'move') {
@@ -286,23 +347,34 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
           const tr = TRACKS.find((t) => t.id === lane.dataset.track);
           if (tr && tr.accepts.includes(clip.type)) { track = tr.id; ln = +lane.dataset.lane || 0; }
         }
-        setClip(clip.id, { start: ns, track, lane: track === 'main' ? 0 : ln }, key);
+        if (track === 'main') ln = 0;
+        // os vizinhos da linha de destino se afastam e mostram onde o clipe vai entrar
+        const lay = insertLayout(base, clip.id, track, ln, ns, o.duration, packedRow(track));
+        slot = lay.slot;
+        setDropSlot({ rk: rowKey(track, ln), start: slot, dur: o.duration });
+        actions.dragLayout(clip.id, { start: ns, track, lane: ln }, lay.starts, base, key);
       } else if (mode === 'left') {
         const end = o.start + o.duration;
         const minStart = media ? o.start - o.in / o.speed : -Infinity;
-        const ns = clamp(snapTo(o.start + dt), Math.max(0, minStart), end - 0.1);
+        const ns = clamp(snapTo(o.start + dt), Math.max(0, minStart, prevEnd), end - 0.1);
         setClip(clip.id, {
           start: ns, duration: end - ns, in: media ? o.in + (ns - o.start) * o.speed : 0,
           keyframes: shiftKf(o, o.start - ns).keyframes,
         }, key);
       } else {
         const maxEnd = media ? o.start + (srcMax - o.in) / o.speed : Infinity;
-        const ne = clamp(snapTo(o.start + o.duration + dt), o.start + 0.1, maxEnd);
-        setClip(clip.id, { duration: ne - o.start }, key);
+        // Principal com ímã: quem vem depois anda junto; nas outras linhas, para no vizinho
+        const push = packedRow(o.track);
+        const ne = clamp(snapTo(o.start + o.duration + dt), o.start + 0.1, push ? maxEnd : Math.min(maxEnd, nextStart));
+        const d = ne - (o.start + o.duration);
+        const starts = new Map(push ? row.filter((c) => c.start >= o.start + o.duration - 1e-3).map((c) => [c.id, c.start + d]) : []);
+        actions.dragLayout(clip.id, { duration: ne - o.start }, starts, base, key);
       }
     }, () => {
       setExtraRows([]);
-      if (moved) settleClip(clip.id, key, clips);
+      setDragId(null);
+      setDropSlot(null);
+      if (moved) settleClip(clip.id, key, clips, mode === 'move' && slot != null ? { start: slot } : null);
     });
   };
 
@@ -312,14 +384,14 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     if (!group.length) return;
     const orig = new Map(group.map((c) => [c.id, c.start]));
     const minStart = Math.min(...group.map((c) => c.start));
-    const sx = e.clientX, key = 'gdrag:' + uid();
+    const sx = e.clientX, key = 'gdrag:' + uid(), scroll0 = scrollRef.current.scrollLeft;
     const points = [time, 0, ...markers.map((m) => m.t), ...clips.filter((c) => !orig.has(c.id)).flatMap((c) => [c.start, c.start + c.duration])];
     const edges = group.flatMap((c) => [c.start, c.start + c.duration]);
     let moved = false;
-    onWindowDrag((ev) => {
+    onEdgeDrag((ev) => {
       if (!moved && Math.abs(ev.clientX - sx) < 3) return;
       moved = true;
-      let dt = (ev.clientX - sx) / pps;
+      let dt = (ev.clientX - sx + scrollRef.current.scrollLeft - scroll0) / pps;
       if (snap && !ev.altKey) {
         let bd = 8 / pps, fix = null;
         for (const e0 of edges) for (const p of points) { const d = p - (e0 + dt); if (Math.abs(d) < bd) { bd = Math.abs(d); fix = d; } }
@@ -378,7 +450,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   const dropTypes = ['text/asset', 'text/effect', 'text/transition'];
 
   return (
-    <div className={`timeline ${playing ? 'playing' : ''} ${tools.blade ? 'blade-mode' : ''} ${tools.crumbs?.length ? 'nested' : ''}`}>
+    <div className={`timeline ${dragId ? 'clip-dragging' : ''} ${playing ? 'playing' : ''} ${tools.blade ? 'blade-mode' : ''} ${tools.crumbs?.length ? 'nested' : ''}`}>
       {tools.crumbs?.length > 0 && (
         <div className="tl-crumbs">
           <button className="btn crumb-back" onClick={() => tools.exitTo(tools.crumbs.length - 1)} title="Voltar um nível (Esc)"><Icon name="chevronL" size={14} /> Voltar</button>
@@ -426,7 +498,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
         <input className="zoom-range" type="range" min={8} max={300} value={zoom} style={{ '--p': `${((zoom - 8) / 292) * 100}%` }} onChange={(e) => setZoom(+e.target.value)} aria-label="Zoom" />
         <button className="icon-btn" title="Aumentar zoom" onClick={() => setZoom((z) => clamp(z * 1.3, 8, 300))}><Icon name="zoomIn" size={16} /></button>
       </div>
-      <div className="tl-scroll" ref={scrollRef} onPointerMove={(e) => { skimMove(e); bladeMove(e); }} onPointerLeave={skimLeave}>
+      <div className="tl-scroll" ref={scrollRef} onScroll={(e) => setScrollX(e.currentTarget.scrollLeft)} onPointerMove={(e) => { skimMove(e); bladeMove(e); }} onPointerLeave={skimLeave}>
         <div className={`tl-content ${cols.matte ? '' : 'no-matte'} ${cols.parent ? '' : 'no-parent'}`} style={{ width: hw + width, '--c-matte': cols.matte ? '70px' : '0px', '--c-parent': cols.parent ? '108px' : '0px' }}>
           <div className="tl-row tl-ruler-row">
             <div className="tl-head tl-corner ae-cols" style={{ width: hw }}>
@@ -481,7 +553,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
                     else onDropTransition(trn, at, rk);
                   }}>
                   {trackClips.map((c) => (
-                    <ClipView key={c.id} c={c} asset={assetMap[c.assetId]} pps={pps} selected={c.id === selectedId || multi.includes(c.id)} onDown={startDrag} onKfDown={startKfDrag} onOpen={actions.enterCompound} onMenu={openClipMenu} label={label} locked={st.lock} />
+                    <ClipView key={c.id} c={c} asset={assetMap[c.assetId]} pps={pps} selected={c.id === selectedId || multi.includes(c.id)} dragging={c.id === dragId} onDown={startDrag} onKfDown={startKfDrag} onOpen={actions.enterCompound} onMenu={openClipMenu} label={label} locked={st.lock} />
                   ))}
                   {pairs.filter((pr) => pr.row === rk).map(({ B, d }) => {
                     const w = Math.max(18, d * pps);
@@ -492,6 +564,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
                       </div>
                     );
                   })}
+                  {dropSlot?.rk === rk && <div className="tl-slot" style={{ left: dropSlot.start * pps, width: Math.max(2, dropSlot.dur * pps) }} />}
                   {ghost && <div className="lane-hint"><Icon name="plus" size={14} /> Solte aqui para criar uma camada acima</div>}
                   {tr.id === 'main' && trackClips.length === 0 && (
                     <div className="lane-hint"><Icon name="film" size={14} /> Arraste vídeos ou imagens para cá</div>
@@ -505,10 +578,10 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
               </React.Fragment>
             );
           })}
-          {tools.blade && bladeT && <div className={`tl-blade ${bladeT.all ? 'all' : ''}`} style={{ left: hw + bladeT.t * pps }}><span>{bladeT.all ? 'Cortar tudo · ' : ''}{fmt(bladeT.t)}</span></div>}
+          {tools.blade && bladeT && bladeT.t * pps >= scrollX && <div className={`tl-blade ${bladeT.all ? 'all' : ''}`} style={{ left: hw + bladeT.t * pps }}><span>{bladeT.all ? 'Cortar tudo · ' : ''}{fmt(bladeT.t)}</span></div>}
           {marq && <div className="tl-marquee" style={marq} />}
-          {skimT != null && <div className="tl-skim" style={{ left: hw + skimT * pps }}><span>{fmt(skimT)}</span></div>}
-          <div className={`tl-playhead ${phSnap ? 'snapped' : ''}`} style={{ left: hw + time * pps }}>
+          {skimT != null && skimT * pps >= scrollX && <div className="tl-skim" style={{ left: hw + skimT * pps }}><span>{fmt(skimT)}</span></div>}
+          <div className={`tl-playhead ${phSnap ? 'snapped' : ''} ${time * pps < scrollX - 1 ? 'under-head' : ''}`} style={{ left: hw + time * pps }}>
             <div className="ph-handle" onPointerDown={startScrub} />
           </div>
           {clipMenu && (() => {

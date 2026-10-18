@@ -302,6 +302,49 @@ function App() {
       hist.set((cs) => cs.map((c) => (ids.has(c.id) ? { ...c, transition: { ...tr } } : c)));
       notify(`Transição aplicada a ${ids.size} corte(s)`);
     },
+    onEdit: (id) => openTrEditor(id, selectedTr),
+    onNew: () => openTrEditor(null, selectedTr),
+  };
+
+  /* ---------- transições personalizadas ---------- */
+  const [trEdit, setTrEdit] = useState(null);   // { def, applyTo }
+  /** abre o editor: as do usuário são editadas no lugar; as prontas em dados viram uma cópia */
+  const openTrEditor = (id, applyTo = null) => {
+    const src = id && TRANSITION_MAP[id]?.def;
+    const def = !src ? null : isUserTransition(id) ? structuredClone(src) : { ...structuredClone(src), id: 'u:' + uid(), name: `${src.name} (minha)` };
+    setTrEdit({ def, applyTo });
+  };
+  const saveTrEditor = (def) => {
+    const saved = saveUserTransition(def);
+    const to = trEdit?.applyTo;
+    if (to) mapClip(to, (c) => ({ ...c, transition: { type: saved.id, duration: c.transition?.duration ?? saved.duration } }));
+    setTrEdit(null);
+    notify(to ? `“${saved.name}” salva e aplicada no corte` : `“${saved.name}” salva em Minhas transições`);
+  };
+  /** troca o tipo da transição em todos os cortes do projeto (inclusive dentro dos compostos) */
+  const retypeTransitions = (from, to) => {
+    const walk = (cs) => cs.map((c) => ({ ...c, ...(c.transition?.type === from ? { transition: { ...c.transition, type: to } } : {}), ...(c.children ? { children: walk(c.children) } : {}) }));
+    rootHist.set(walk);
+  };
+  const libTrApi = {
+    onNew: () => openTrEditor(null),
+    onEdit: (id) => openTrEditor(id),
+    onExport: (id) => exportTransitions([TRANSITION_MAP[id].def], TRANSITION_MAP[id].name),
+    onDelete: (id) => {
+      const count = (cs) => cs.reduce((n, c) => n + (c.transition?.type === id ? 1 : 0) + (c.children ? count(c.children) : 0), 0);
+      const used = count(rootRef.current), name = TRANSITION_MAP[id].name;
+      if (!confirm(used ? `“${name}” está em ${used} corte(s), que passarão a usar Mistura. Excluir?` : `Excluir “${name}”?`)) return;
+      if (used) retypeTransitions(id, 'mix');
+      deleteUserTransition(id);
+      notify('Transição excluída');
+    },
+    onImport: async (files) => {
+      let n = 0;
+      for (const f of files) {
+        try { n += (await importTransitionsFile(f)).length; } catch (e) { notify(`“${f.name}”: ${e.message || 'arquivo inválido'}`); }
+      }
+      if (n) notify(`${n} transição(ões) importada(s) para Minhas transições`);
+    },
   };
 
   /* ---------- keyframes ---------- */
@@ -417,6 +460,16 @@ function App() {
   /* ---------- mover vários clipes ---------- */
   const moveClips = useCallback((orig, dt, key) =>
     hist.set((cs) => cs.map((c) => (orig.has(c.id) ? { ...c, start: orig.get(c.id) + dt } : c)), key), [hist.set]);
+  /** durante o arraste de um clipe: aplica `patch` nele e põe os vizinhos onde o arraste pede
+   *  (`starts`); quem não está em `starts` volta para onde estava em `base` (o arraste pode ter trocado de linha) */
+  const dragLayout = useCallback((id, patch, starts, base, key) => {
+    const was = new Map(base.map((c) => [c.id, c.start]));
+    hist.set((cs) => cs.map((c) => {
+      if (c.id === id) return { ...c, ...patch };
+      const s = starts.has(c.id) ? starts.get(c.id) : was.get(c.id) ?? c.start;
+      return Math.abs(s - c.start) > 1e-6 ? { ...c, start: s } : c;
+    }), key);
+  }, [hist.set]);
   /** ao soltar o grupo: quem caiu sobre outro clipe sobe para uma camada livre; depois ímã e vinculação */
   const settleGroup = useCallback((ids, key, before) => {
     let cs = live.current.clips;
@@ -840,6 +893,7 @@ function App() {
     select(null);
     exitStack.current = [];
     setPath([]);
+    adoptProjectTransitions(doc.transitions);
     hist.reset(doc.clips || []);
     setAssets(doc.assets || []);
     setMarkers(doc.markers || []);
@@ -1408,6 +1462,7 @@ function App() {
     const down = (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (document.querySelector('.modal-back')) return;   // janela aberta: os atalhos ficam com ela
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
@@ -1528,7 +1583,7 @@ function App() {
           onAddText={addText} onAddSticker={addSticker} onAddColor={addColor} onAddSfx={addSfx}
           selected={selected} selectedAsset={selectedAsset} onApplyFilter={applyFilter}
           onAddEffect={(id) => addEffect(id)} onApplyTransition={(id) => applyTransition(id)} onAddAdjust={addAdjust}
-          onApplyTemplate={applyTemplate} captions={captions} />
+          onApplyTemplate={applyTemplate} captions={captions} trApi={libTrApi} />
         <div className="col-resizer" onPointerDown={startCol('left')} onDoubleClick={() => setLeftW(470)} title="Arraste para redimensionar · clique duplo restaura" />
         <Player W={W} H={H} ratio={ratio} setRatio={setRatio} canvasRef={canvasRef} overlayRef={overlayRef}
           time={time} duration={duration} playing={playing} onToggle={togglePlay} onSeek={seek} onPreviewDown={onPreviewDown} onPreviewMove={onPreviewMove} onPreviewLeave={() => { mouseRef.current = null; hoverRef.current = null; }} tool={tool} empty={clips.length === 0}
@@ -1554,9 +1609,9 @@ function App() {
         selectedId={selectedId} multi={multi} onSelect={select} onToggleSel={toggleSel} onSetSel={setSelection} selectedTr={selectedTr} onSelectTr={(id) => { setSelectedId(null); setSelectedTr(id); }}
         onSeek={(t) => { setPlaying(false); seek(t); }} setClip={setClip}
         onDropAsset={(id, track, start, lane) => assetMap[id] && addAsset(assetMap[id], track, dropStart(track, lane, start), lane)}
-        settleClip={(id, key, before0) => {
-          // ao soltar: se cair sobre outro clipe, sobe para a próxima camada livre; depois remove camadas vazias
-          const cs = live.current.clips, c = cs.find((x) => x.id === id);
+        settleClip={(id, key, before0, patch) => {
+          // ao soltar: entra no espaço aberto (patch); se ainda cair sobre outro clipe, sobe para a próxima camada livre; depois remove camadas vazias
+          const cs = patch ? live.current.clips.map((x) => (x.id === id ? { ...x, ...patch } : x)) : live.current.clips, c = cs.find((x) => x.id === id);
           if (!c) return;
           const lane = freeLane(cs, c, laneOf(c));
           const bumped = lane === laneOf(c) ? cs : cs.map((x) => (x.id === id ? { ...x, lane } : x));
@@ -1569,7 +1624,7 @@ function App() {
         tools={{ crumbs, exitTo, mainMagnet, setMainMagnet, ripple, setRipple, blade, setBlade, linkage, setLinkage, skim, setSkim: (v) => { setSkim(v); if (!v) skimRef.current = null; },
           onSkim: (t) => { skimRef.current = t; }, recording, onRecord: recordVoice }}
         trackState={trackState} toggleTrack={toggleTrack} zoom={zoom} setZoom={setZoom} snap={snap} setSnap={setSnap} markers={markers}
-        actions={{ split, trimSide, remove, duplicate, extractAudio, copy: copyClip, cut: cutClip, bladeAt, moveClips, settleGroup, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
+        actions={{ split, trimSide, remove, duplicate, extractAudio, copy: copyClip, cut: cutClip, bladeAt, moveClips, dragLayout, settleGroup, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
           removeMarker: (id) => setMarkers((m) => m.filter((x) => x.id !== id)),
           undo: hist.undo, redo: hist.redo, canUndo: hist.canUndo, canRedo: hist.canRedo }} />
       {curveOpen && selected && kfCount(selected) > 0 && (
@@ -1577,6 +1632,7 @@ function App() {
           onChange={(kfs, key) => setClip(selected.id, { keyframes: kfs }, key)}
           onSeek={(t) => { setPlaying(false); seek(selected.start + t); }} onClose={() => setCurveOpen(false)} />
       )}
+      {trEdit && <TransitionEditor initial={trEdit.def} applyTo={trEdit.applyTo} onSave={saveTrEditor} onClose={() => setTrEdit(null)} />}
       <ExportModal state={exportState} name={projectName} resolution={resolution} setResolution={setResolution} ratio={ratio}
         fps={exportFps} setFps={setExportFps} sourceFps={sourceFps}
         method={exportMethod} setMethod={setExportMethod} offlineOk={offlineExportSupported()} offlineLabel={offlineProg.label}

@@ -58,6 +58,7 @@ function projectDoc(p) {
     version: PROJECT_VERSION, savedAt: Date.now(),
     name: p.name, ratio: p.ratio, resolution: p.resolution,
     clips: p.clips, markers: p.markers, trackState: p.trackState, guides: p.guides, capStyle: p.capStyle?.id || null,
+    transitions: usedUserTransitions(p.clips),   // as personalizadas vão junto, para abrir em outro navegador
     assets: p.assets.filter((a) => !a.loading && !a.error).map(assetMeta),
   };
 }

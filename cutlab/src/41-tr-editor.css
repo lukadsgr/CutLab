@@ -1,0 +1,43 @@
+/* ---------- editor de transições ---------- */
+.modal.tr-editor { width: min(1080px, 96vw); max-height: 94vh; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; }
+.tre-head { display: flex; align-items: center; gap: 10px; }
+.tre-name { flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 5px 8px; font-size: 16px; font-weight: 600; color: var(--text); }
+.tre-name:hover, .tre-name:focus { border-color: var(--border-2); background: var(--panel-2); outline: none; }
+.tre-preset { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-size: 12px; max-width: 220px; }
+.tre-top { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(240px, 1fr); gap: 16px; }
+.tre-preview canvas { width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #000; display: block; border: 1px solid var(--border); }
+.tre-transport { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.tre-scrub { position: relative; flex: 1; height: 8px; border-radius: 4px; background: var(--panel-3); cursor: pointer; touch-action: none; }
+.tre-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); pointer-events: none; }
+.tre-cut { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: rgba(255,255,255,.35); pointer-events: none; z-index: 1; }
+.tre-settings { display: flex; flex-direction: column; gap: 2px; overflow: auto; max-height: 340px; padding-right: 4px; }
+.tre-settings .seg button { padding: 4px 10px; }
+.tre-color { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin: 6px 0; cursor: pointer; }
+.tre-color input { width: 28px; height: 22px; border: 0; padding: 0; background: none; cursor: pointer; }
+.tre-tracks { overflow: auto; min-height: 120px; flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; background: rgba(0,0,0,.18); }
+.tre-group + .tre-group { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; }
+.tre-glabel { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--gc); margin: 2px 0 4px; }
+.tre-row { display: grid; grid-template-columns: 110px 64px 26px 1fr; align-items: center; gap: 8px; height: 26px; }
+.tre-label { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
+.tre-row.tre-animated .tre-label { color: var(--text); cursor: pointer; }
+.tre-row .num { width: 64px; }
+.tre-lane { position: relative; height: 20px; border-radius: 5px; background: var(--panel-2); cursor: pointer; touch-action: none; }
+.tre-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.12); pointer-events: none; }
+.tre-span { position: absolute; top: 50%; height: 2px; margin-top: -1px; background: var(--gc); opacity: .45; pointer-events: none; }
+.tre-key { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; transform: rotate(45deg); background: var(--gc); border: 1.5px solid rgba(0,0,0,.6); border-radius: 2px; cursor: grab; z-index: 2; transition: transform .15s var(--spring, ease); }
+.tre-key:hover { transform: rotate(45deg) scale(1.25); }
+.tre-key.sel { background: #fff; box-shadow: 0 0 0 2px var(--gc), 0 0 10px var(--gc); }
+.tre-key.e-hold { border-radius: 0; }
+.tre-key.e-spring { border-radius: 50%; transform: none; }
+.tre-key.e-spring:hover { transform: scale(1.25); }
+.tre-head-line { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; z-index: 3; border-radius: 1px; }
+.tre-keybar { display: flex; align-items: center; gap: 10px; min-height: 30px; flex-wrap: wrap; }
+.tre-hint { font-size: 12px; color: var(--muted); }
+.tr-editor .actions { margin-top: 0; align-items: center; }
+/* ações nas miniaturas das transições editáveis */
+.card-acts { position: absolute; right: 4px; bottom: 4px; display: flex; gap: 3px; opacity: 0; transition: opacity .12s; z-index: 1; }
+.card:hover .card-acts { opacity: 1; }
+.card-acts button { width: 22px; height: 22px; border-radius: 6px; border: 0; background: rgba(0,0,0,.65); color: #fff; display: grid; place-items: center; }
+.card-acts button:hover { background: var(--accent); }
+.tr-tools { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+@media (max-width: 760px) { .tre-top { grid-template-columns: 1fr; } .tre-row { grid-template-columns: 84px 56px 26px 1fr; } }

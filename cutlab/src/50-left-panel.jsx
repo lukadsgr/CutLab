@@ -20,7 +20,9 @@ const SIDEBARS = {
   text: [{ id: 'fav', label: 'Favoritos' }, { id: 'add', label: 'Adicionar texto' }, { id: 'styles', label: 'Efeitos de texto' }],
   stickers: [{ id: 'fav', label: 'Favoritos' }, ...Object.keys(STICKER_CATS).map((c) => ({ id: c, label: c }))],
   effects: [{ id: 'fav', label: 'Favoritos' }, { group: 'Efeitos de vídeo' }, { id: 'all', label: 'Populares' }, ...uniq(EFFECTS.map((e) => e.cat)).map((c) => ({ id: c, label: c }))],
-  transitions: [{ id: 'fav', label: 'Favoritos' }, { group: 'Transições' }, { id: 'all', label: 'Populares' }, ...uniq(TRANSITIONS.map((e) => e.cat)).map((c) => ({ id: c, label: c }))],
+  transitions: [{ id: 'fav', label: 'Favoritos' }, { group: 'Transições' }, { id: 'all', label: 'Populares' },
+    ...uniq(TRANSITIONS.map((e) => e.cat)).filter((c) => c !== USER_TR_CAT).map((c) => ({ id: c, label: c })),
+    { group: 'Personalizadas' }, { id: USER_TR_CAT, label: 'Minhas transições' }],
   captions: [{ id: 'editor', label: 'Legendas' }, { id: 'auto', label: 'Automáticas' }, { id: 'script', label: 'Do roteiro' }, { id: 'styles', label: 'Estilos' }],
   filters: [{ id: 'fav', label: 'Favoritos' }, { id: 'all', label: 'Todos' }, ...uniq(FILTERS.map((f) => f.cat)).map((c) => ({ id: c, label: c }))],
   adjust: [{ id: 'custom', label: 'Ajustes' }, { id: 'presets', label: 'Predefinições' }],
@@ -81,7 +83,9 @@ function StickerIcon({ e }) {
 
 function LeftPanel(props) {
   const { assets, usedAssets = new Map(), onImport, onAddAsset, onRemoveAsset, onAddText, onAddSticker, onAddColor, onAddSfx, selected, selectedAsset,
-    onApplyFilter, onAddEffect, onApplyTransition, onAddAdjust, onApplyTemplate, captions } = props;
+    onApplyFilter, onAddEffect, onApplyTransition, onAddAdjust, onApplyTemplate, captions, trApi } = props;
+  const trV = useTransitionsVersion();
+  const trFileRef = useRef();
   const [tab, setTab] = useState('media');
   const [cats, setCats] = useState(DEFAULT_CAT);
   const [query, setQuery] = useState('');
@@ -249,18 +253,34 @@ function LeftPanel(props) {
       break;
     }
     case 'transitions': {
+      const mine = cat === USER_TR_CAT && !q;
       const list = pick(TRANSITIONS, 'transition', (e) => e.cat);
+      const act = (fn, e) => (ev) => { ev.stopPropagation(); fn(e.id); };
       body = (<>
-        <div className="panel-title">{q ? 'Resultados' : cat === 'fav' ? 'Favoritos' : cat === 'all' ? 'Populares' : cat}</div>
+        <div className="panel-title">{q ? 'Resultados' : cat === 'fav' ? 'Favoritos' : cat === 'all' ? 'Populares' : mine ? 'Minhas transições' : cat}</div>
+        {mine && (
+          <div className="tr-tools">
+            <button className="btn btn-primary" onClick={() => trApi.onNew()}><Icon name="plus" size={14} /> Nova transição</button>
+            <button className="btn" onClick={() => trFileRef.current.click()}><Icon name="upload" size={14} /> Importar</button>
+            <input ref={trFileRef} type="file" hidden multiple accept=".json,application/json" onChange={(e) => { trApi.onImport([...e.target.files]); e.target.value = ''; }} />
+          </div>
+        )}
         {list.length ? (
           <div className="card-grid">
             {list.map((e) => (
               <Card key={e.id} title={e.name} onClick={() => onApplyTransition(e.id)} drag={['text/transition', e.id]} {...favCard('transition', e.id)}>
-                <FxThumb kind="transition" id={e.id} />
+                <FxThumb key={`${e.id}:${trV}`} kind="transition" id={e.id} />
+                {e.def && (
+                  <span className="card-acts">
+                    <button title={e.cat === USER_TR_CAT ? 'Editar' : 'Editar uma cópia'} onClick={act(trApi.onEdit, e)}><Icon name="pen" size={11} /></button>
+                    {e.cat === USER_TR_CAT && <button title="Exportar (.json)" onClick={act(trApi.onExport, e)}><Icon name="download" size={11} /></button>}
+                    {e.cat === USER_TR_CAT && <button title="Excluir" onClick={act(trApi.onDelete, e)}><Icon name="trash" size={11} /></button>}
+                  </span>
+                )}
               </Card>
             ))}
           </div>
-        ) : empty(cat === 'fav' ? 'Clique na estrela de uma transição para favoritá-la.' : 'Nada encontrado.')}
+        ) : empty(cat === 'fav' ? 'Clique na estrela de uma transição para favoritá-la.' : mine ? 'Você ainda não criou transições. Crie uma do zero, comece de um modelo (as da categoria Dinâmicas) ou importe um arquivo .json.' : 'Nada encontrado.')}
         <div className="hint" style={{ marginTop: 14 }}>Clique para aplicar no corte mais próximo do cursor, ou arraste até o ponto entre dois clipes da faixa <b>Principal</b>.</div>
       </>);
       break;
