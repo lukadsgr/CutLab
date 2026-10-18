@@ -80,6 +80,8 @@ function App() {
   // qualidade da prévia (o canvas do reprodutor é menor que o quadro do projeto; ver PREVIEW_Q)
   const [previewQ, setPreviewQ] = useState(() => { try { return PREVIEW_Q[localStorage.getItem('cutlab-previewq')] ? localStorage.getItem('cutlab-previewq') : 'auto'; } catch { return 'auto'; } });
   useEffect(() => { try { localStorage.setItem('cutlab-previewq', previewQ); } catch {} }, [previewQ]);
+  const [diagOn, setDiagOn] = useState(false);   // diagnóstico de reprodução (Ctrl+Shift+D)
+  useEffect(() => { perfDiag.on = diagOn; if (diagOn) perfDiag.reset(); }, [diagOn]);
   const [exportState, setExportState] = useState(null);
   const [info, setInfo] = useState(null);
   const [dropHint, setDropHint] = useState(false);
@@ -175,7 +177,9 @@ function App() {
         setTimeState(uiT);
       }
       const t = !s.playing && skimRef.current != null ? skimRef.current : timeRef.current;
+      const p0 = performance.now();
       engine.sync(t, s.playing && t < s.duration, s.clips, s.assetMap, s.trackState);
+      const p1 = performance.now();
       const cv = canvasRef.current;
       if (cv) {
         // prévia temporária (ex.: passar o mouse sobre um modo de mistura)
@@ -193,7 +197,10 @@ function App() {
         });
         // durante a exportação, cada quadro desenhado é capturado explicitamente
         recRef.current?.track?.requestFrame?.();
+        // o que entra em cena logo já fica preparado (bitmap da imagem, primeiro quadro na GPU)
+        engine.warmUp(t, s.clips, s.assetMap, s.playing);
       }
+      if (perfDiag.on) perfDiag.frame(now, t, s.playing, p1 - p0, performance.now() - p1, s.clips);
     };
     const loop = () => { tick(); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
@@ -1597,6 +1604,7 @@ function App() {
       }
       else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); }
       else if (mod && key === 'b') { e.preventDefault(); split(); }
+      else if (mod && e.shiftKey && key === 'd') { e.preventDefault(); setDiagOn((v) => !v); }
       else if (mod && key === 'd') { e.preventDefault(); duplicate(); }
       else if (mod && key === 'z') { e.preventDefault(); e.shiftKey ? hist.redo() : hist.undo(); }
       else if (mod && key === 'y') { e.preventDefault(); hist.redo(); }
@@ -1702,7 +1710,8 @@ function App() {
         menu={{ newProject, openProject, saveProject, savePackage,copy: copyClip, cut: cutClip, paste: pasteClip, hasSelection: !!selectedId,
           group: groupClips, ungroupClips, canUngroupClips,
           compound: createCompound, ungroup: ungroupCompound, canCompound: multi.length > 0, canUngroup: isCompound(selected), clearMarkers, hasMarkers: markers.length > 0,
-          importMedia: () => importRef.current.click(), deselect: () => select(null), shortcuts: () => setInfo('shortcuts'), about: () => setInfo('about') }} />
+          importMedia: () => importRef.current.click(), deselect: () => select(null), shortcuts: () => setInfo('shortcuts'), about: () => setInfo('about'), diag: () => setDiagOn((v) => !v), diagOn }} />
+      {diagOn && <PerfHud onClose={() => setDiagOn(false)} />}
       <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
         <filter id="cl-sharpen"><feConvolveMatrix order="3" kernelMatrix="0 -1 0 -1 5 -1 0 -1 0" preserveAlpha="true" /></filter>
       </svg>
@@ -1823,6 +1832,77 @@ function applyLinkage(before, after, movedId) {
     const sh = b && shifts.find((x) => b.start >= x.s - 1e-3 && b.start < x.e - 1e-3);
     return sh ? { ...c, start: Math.max(0, b.start + sh.d) } : c;
   });
+}
+
+/**
+ * diagnóstico de reprodução (Menu › Diagnóstico ou Ctrl+Shift+D): mede o intervalo entre quadros
+ * durante o play e registra cada engasgo com o que entrou/saiu de cena naquele instante, o tempo de
+ * sincronia/desenho e as mídias buscando. O relatório pode ser copiado.
+ */
+const perfDiag = {
+  on: false,
+  reset() { Object.assign(this, { n: 0, slow: 0, worst: 0, sum: 0, last: 0, lastT: 0, prev: null, hitches: [], recent: [] }); },
+  frame(now, t, playing, syncMs, drawMs, clips) {
+    if (!playing) { this.last = 0; return; }
+    const gap = this.last ? now - this.last : 0;
+    if (gap) {
+      this.n++; this.sum += gap; this.worst = Math.max(this.worst, gap);
+      this.recent.push(now); while (this.recent.length && now - this.recent[0] > 1000) this.recent.shift();
+      if (gap > 40) {
+        this.slow++;
+        const a = this.lastT - 0.05, b = t + 0.05, nm = (c) => c.name || (c.type === 'text' ? 'Texto “' + String(c.props?.text || '').slice(0, 18) + '”' : c.type);
+        const ev = [];
+        for (const c of clips) {
+          if (c.start > a && c.start <= b) ev.push('entrou ' + nm(c));
+          const e = c.start + c.duration;
+          if (e > a && e <= b) ev.push('saiu ' + nm(c));
+        }
+        const seeking = [...engine.media.values()].filter((el) => el.seeking).length;
+        this.hitches.push({ t: +t.toFixed(3), gap: Math.round(gap), sync: +syncMs.toFixed(1), draw: +drawMs.toFixed(1), prevDraw: this.prev ? +this.prev.toFixed(1) : null, ev, seeking, lat: +(engine.playLat * 1000).toFixed(0) });
+        if (this.hitches.length > 200) this.hitches.shift();
+      }
+    }
+    this.last = now; this.lastT = t; this.prev = syncMs + drawMs;
+  },
+  report() {
+    const c = canvasPreviewSize();
+    return JSON.stringify({ quadros: this.n, lentos: this.slow, medioMs: this.n ? +(this.sum / this.n).toFixed(1) : 0, piorMs: Math.round(this.worst), previa: c, dpr: window.devicePixelRatio, ua: navigator.userAgent, engasgos: this.hitches }, null, 1);
+  },
+};
+perfDiag.reset();
+const canvasPreviewSize = () => { const c = document.querySelector('.canvas-wrap canvas'); return c ? c.width + '×' + c.height : null; };
+function PerfHud({ onClose }) {
+  const [, setN] = useState(0);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { const iv = setInterval(() => setN((n) => n + 1), 500); return () => clearInterval(iv); }, []);
+  const d = perfDiag, fps = d.recent.length;
+  const copy = () => { navigator.clipboard?.writeText(d.report()).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
+  return (
+    <div className="perf-hud">
+      <div className="perf-head">
+        <b>Diagnóstico de reprodução</b>
+        <button className="icon-btn" title="Fechar (Ctrl+Shift+D)" onClick={onClose}><Icon name="x" size={13} /></button>
+      </div>
+      <div className="perf-stats">
+        <span><em>{fps}</em> qps</span>
+        <span><em>{d.slow}</em> engasgos</span>
+        <span><em>{Math.round(d.worst)}</em> ms pior</span>
+        <span><em>{canvasPreviewSize()}</em></span>
+      </div>
+      <div className="perf-list">
+        {d.hitches.length === 0 ? <div className="perf-empty">Dê play: cada quadro que demorar mais de 40 ms aparece aqui.</div>
+          : d.hitches.slice(-8).reverse().map((h, i) => (
+            <div key={i} className="perf-row">
+              <span className="perf-t">{fmt(h.t)}</span><span className="perf-gap">{h.gap} ms</span>
+              <span className="perf-ev">{h.ev.length ? h.ev.join(' · ') : 'sem troca'}{h.seeking ? ' · buscando' : ''}</span>
+            </div>))}
+      </div>
+      <div className="perf-foot">
+        <button className="btn" onClick={() => { d.reset(); setN((n) => n + 1); }}>Zerar</button>
+        <button className="btn btn-primary" onClick={copy}>{copied ? 'Copiado!' : 'Copiar relatório'}</button>
+      </div>
+    </div>
+  );
 }
 
 /** caixas do motor (em px do canvas da prévia) → px do quadro do projeto */

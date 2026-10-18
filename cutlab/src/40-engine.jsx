@@ -103,6 +103,7 @@ class Engine {
     this.playLat = 0.15;     // segundos entre play() e a mídia andar (medido; usado na pré-rolagem)
     this.media = new Map();
     this.images = new Map();
+    this.bitmaps = new Map(); // imagens reduzidas ao tamanho de uso (ver imageSrc)
     this.erase = new Map();
     this.hold = new Map();    // último quadro bom de cada vídeo (mostrado durante buscas)
     this.frames = new Map();  // quadros recentes para interpolação em câmera lenta
@@ -155,6 +156,58 @@ class Engine {
       if (el.tagName === 'VIDEO') this.watchFrames(clip.id, el);
     }
     return el;
+  }
+  /** lado maior (px) em que a imagem pode aparecer no quadro atual: quadro × escala do clipe */
+  imageNeed(p) {
+    const r = this._r;
+    if (!r) return Infinity;
+    return Math.max(r.W, r.H) * Math.max(1, ((p?.scale ?? 100) / 100) * Math.max(p?.scaleX ?? 100, p?.scaleY ?? 100) / 100);
+  }
+  /**
+   * imagem pronta para desenhar: bitmap reduzido ao tamanho útil. Desenhar uma foto de 12 MP
+   * reduzindo-a a cada quadro custava ms por quadro e dezenas de ms no quadro em que ela entra
+   * (o "tranco" na troca). Tamanhos em potências de 2: zoom/escala não recriam a cada quadro.
+   * Até o bitmap ficar pronto (assíncrono), vale a imagem original.
+   */
+  imageSrc(a, img, need) {
+    const nw = img.naturalWidth, nh = img.naturalHeight, nat = Math.max(nw, nh);
+    if (!(need < nat * 0.8)) return img;
+    const side = Math.min(nat, 2 ** Math.ceil(Math.log2(Math.max(256, need))));
+    if (side >= nat * 0.8) return img;
+    const key = a.id + ':' + side;
+    const bm = this.bitmaps.get(key);
+    if (bm === undefined && window.createImageBitmap) {
+      this.bitmaps.set(key, null);
+      const f = side / nat;
+      createImageBitmap(img, { resizeWidth: Math.max(1, Math.round(nw * f)), resizeHeight: Math.max(1, Math.round(nh * f)), resizeQuality: 'high' })
+        .then((b) => { if (this.bitmaps.get(key) === null) this.bitmaps.set(key, b); else b.close(); })
+        .catch(() => {});
+    }
+    return bm || img;
+  }
+  /**
+   * pré-aquecimento: mídia que entra em cena em breve é preparada antes da troca — bitmap da imagem,
+   * e um desenho em miniatura do vídeo/imagem para a GPU já ter o quadro (o primeiro desenho de um
+   * quadro novo é o caro). Chamado pelo laço da prévia depois de desenhar o quadro.
+   */
+  warmUp(t, clips, assetMap, playing) {
+    const w = this._warm || (this._warm = Object.assign(document.createElement('canvas'), { width: 16, height: 9 }));
+    const x = w.getContext('2d');
+    for (const c of clips) {
+      const until = c.start - t;
+      if (!(until > 0 && until < 1.5)) continue;
+      const a = assetMap[c.assetId];
+      if (!a) continue;
+      if (c.type === 'image') {
+        const img = this.getImage(a);
+        if (!img.complete || !img.naturalWidth) continue;
+        const src = this.imageSrc(a, img, this.imageNeed(c.props));
+        if (playing && until < 0.5) x.drawImage(src, 0, 0, 16, 9);
+      } else if (c.type === 'video' && playing && until < 0.5) {
+        const el = this.media.get(c.id);
+        if (el && el.readyState >= 2 && !el.seeking) x.drawImage(el, 0, 0, 16, 9);
+      }
+    }
   }
   getImage(asset) {
     let img = this.images.get(asset.id);
@@ -504,7 +557,8 @@ class Engine {
     }
     if (c.type === 'image' && a) {
       const img = this.getImage(a);
-      return { src: img, sw: a.width || 16, sh: a.height || 9, ready: img.complete && img.naturalWidth > 0 };
+      const ready = img.complete && img.naturalWidth > 0;
+      return { src: ready ? this.imageSrc(a, img, this.imageNeed(p)) : img, sw: a.width || 16, sh: a.height || 9, ready };
     }
     if (c.type === 'color') return { src: null, sw: 16, sh: 9, ready: true };
     return { src: null, sw: 0, sh: 0, ready: false };

@@ -43,6 +43,7 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
             {item('Remover todos os marcadores', menu.clearMarkers, null, !menu.hasMarkers)}
             {item('Selecionar nada', menu.deselect, 'Esc')}
             <div className="menu-sep" />
+            {item(menu.diagOn ? 'Fechar diagnóstico de reprodução' : 'Diagnóstico de reprodução', menu.diag, 'Ctrl+Shift+D')}
             {item('Atalhos de teclado', menu.shortcuts)}
             {item('Sobre o CutLab', menu.about)}
           </div>
