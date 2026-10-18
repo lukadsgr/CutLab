@@ -126,6 +126,46 @@ function App() {
   }, []);
 
   useEffect(() => { engine.prune(rootHist.clips); }, [rootHist.clips]);
+  // prévia "Completa" usa os arquivos originais; as outras, os proxies (ver 38-proxy)
+  useEffect(() => { engine.noProxy = previewQ === 'full'; }, [previewQ]);
+
+  /* proxies de prévia: um vídeo por vez, em segundo plano (guardados neste navegador) */
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
+  const proxyRun = useRef({ busy: false, seen: new Set() });
+  const [proxyTick, setProxyTick] = useState(0);
+  useEffect(() => {
+    const run = proxyRun.current;
+    if (run.busy) return;
+    const a = assets.find((x) => x.type === 'video' && x.file && !x.loading && !x.missing && !x.error && !x.proxyUrl && !run.seen.has(x.id));
+    if (!a) return;
+    run.seen.add(a.id);
+    run.busy = true;
+    (async () => {
+      try {
+        let blob = await loadProxyBlob(a.id);
+        if (!blob) {
+          if (!(await proxyNeed(a.file))) return;
+          proxyProgress.set(a.id, 0);
+          let last = 0;
+          blob = await makeProxy(a.file, {
+            onProgress: (q) => { if (q - last >= 0.01 || q === 1) { last = q; proxyProgress.set(a.id, q); } },
+            isCancelled: () => !assetsRef.current.some((x) => x.id === a.id),   // mídia removida no meio
+          });
+          saveProxyBlob(a.id, blob).catch(() => {});
+        }
+        const proxyFile = new File([blob], 'proxy-' + a.id + '.mp4', { type: 'video/mp4' });
+        const proxyUrl = URL.createObjectURL(proxyFile);
+        setAssets((as) => as.map((x) => (x.id === a.id ? { ...x, proxyUrl, proxyFile } : x)));
+      } catch (e) {
+        if (e?.name !== 'AbortError') console.warn('Proxy não gerado para', a.name, e);   // fica o original
+      } finally {
+        proxyProgress.set(a.id, null);
+        run.busy = false;
+        setProxyTick((n) => n + 1);
+      }
+    })();
+  }, [assets, proxyTick]);
   // brilho que segue o cursor em cartões e botões (micro-interação)
   useEffect(() => {
     const mv = (e) => {
@@ -1553,6 +1593,7 @@ function App() {
   const startExport = async () => {
     if (exportMethod === 'offline' && offlineExportSupported()) return startOffline();
     engine.ensureAudio();
+    engine.noProxy = true;   // a gravação em tempo real usa o canvas da prévia: com os originais
     setPlaying(false);
     select(null);
     seek(0);
@@ -1567,6 +1608,7 @@ function App() {
     const chunks = [];
     rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     rec.onstop = () => {
+      engine.noProxy = previewQ === 'full';
       const cancelled = rec.cancelled;
       recRef.current = null;
       stream.getVideoTracks().forEach((t) => t.stop());

@@ -144,13 +144,19 @@ class Engine {
       this.gains.set(id, g);
     } catch (e) { /* elemento já conectado */ }
   }
+  /** proxy de prévia em uso para esta mídia? (nunca na exportação nem na prévia "Completa") */
+  proxyOn(a) { return !!a?.proxyUrl && !this.offline && !this.noProxy; }
   getMedia(clip, asset) {
     let el = this.media.get(clip.id);
+    const url = this.proxyOn(asset) ? asset.proxyUrl : asset.url;
+    // o proxy ficou pronto (ou a qualidade mudou): o elemento é refeito com o outro arquivo
+    if (el && el._url !== url) { this.dropMedia(clip.id); el = null; }
     if (!el) {
       el = document.createElement(asset.type === 'audio' ? 'audio' : 'video');
       el.preload = 'auto';
       el.playsInline = true;
-      el.src = asset.url;
+      el.src = url;
+      el._url = url;
       el._seeks = 0;
       el.addEventListener('seeking', () => { el._seeks++; });   // contado pelo diagnóstico de reprodução
       this.media.set(clip.id, el);
@@ -218,18 +224,21 @@ class Engine {
   }
   prune(clips) {
     const ids = allClipIds(clips);
-    for (const [id, el] of this.media) {
-      if (ids.has(id)) continue;
-      el.pause();
-      el.removeAttribute('src');
-      el.load();
-      this.media.delete(id);
-      this.hold.delete(id);
-      this.frames.delete(id);
-      this.rates.delete(id);
-      const g = this.gains.get(id);
-      if (g) { g.disconnect(); this.gains.delete(id); }
-    }
+    for (const id of [...this.media.keys()]) if (!ids.has(id)) this.dropMedia(id);
+  }
+  /** libera o elemento de um clipe (e o que é ligado a ele) */
+  dropMedia(id) {
+    const el = this.media.get(id);
+    if (!el) return;
+    el.pause();
+    el.removeAttribute('src');
+    el.load();
+    this.media.delete(id);
+    this.hold.delete(id);
+    this.frames.delete(id);
+    this.rates.delete(id);
+    const g = this.gains.get(id);
+    if (g) { g.disconnect(); this.gains.delete(id); }
   }
   setVolume(id, el, v) {
     const g = this.gains.get(id);
@@ -623,8 +632,10 @@ class Engine {
   /** fonte de quadros WebCodecs do arquivo (criada sob demanda) */
   frameSource(a) {
     if (!a?.file || !window.VideoDecoder) return null;
-    let fs = this.sources.get(a.id);
-    if (!fs) { fs = new FrameSource(a.file); this.sources.set(a.id, fs); }
+    // na prévia, o motor quadro a quadro também lê o proxy (buscas rápidas); exportando, o original
+    const px = this.proxyOn(a) && a.proxyFile, key = px ? a.id + ':proxy' : a.id;
+    let fs = this.sources.get(key);
+    if (!fs) { fs = new FrameSource(px || a.file); this.sources.set(key, fs); }
     return fs;
   }
   /** usa o motor exato quando a velocidade do clipe foi alterada */

@@ -128,6 +128,7 @@ function LeftPanel(props) {
       {usedAssets.has(a.id) && <span className="asset-used" title={`Na linha do tempo (${usedAssets.get(a.id)} clipe${usedAssets.get(a.id) > 1 ? 's' : ''})`}><Icon name="check" size={11} stroke={3} /></span>}
       {!a.loading && !a.error && !a.missing && <button className="asset-add" title="Adicionar à linha do tempo" onClick={() => onAddAsset(a)}><Icon name="plus" size={14} stroke={2.5} /></button>}
       <button className="asset-del" title="Remover da biblioteca" onClick={() => onRemoveAsset(a.id)}><Icon name="x" size={11} stroke={2.5} /></button>
+      {a.type === 'video' && <ProxyBadge a={a} />}
       {a.loading && <div className="asset-loading">Processando…</div>}
       {a.error && <div className="asset-loading">Formato não suportado</div>}
       {a.missing && <div className="asset-loading" title="Importe este arquivo de novo para religá-lo">Arquivo não encontrado</div>}
@@ -566,4 +567,15 @@ function AutoCaptions({ onAuto, hasCaptions, time, selMedia }) {
       <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={run} disabled={scope === 'clip' && !selMedia}><Icon name="wand" size={15} /> Gerar legendas automáticas</button>
     )}
   </>);
+}
+
+/** cópia leve da prévia: progresso enquanto é gerada, selo quando está em uso */
+function ProxyBadge({ a }) {
+  const p = useProxyProgress(a.id);
+  if (p != null) return (
+    <div className="asset-proxy" title="Gerando uma cópia leve só para a prévia (cortes e buscas rápidos). A exportação usa o original.">
+      <i style={{ width: `${Math.round(p * 100)}%` }} /><span>Otimizando {Math.round(p * 100)}%</span>
+    </div>);
+  if (a.proxyUrl) return <span className="asset-proxy-ok" title="A prévia usa uma cópia leve deste vídeo (proxy). A exportação e a prévia Completa usam o original.">PROXY</span>;
+  return null;
 }

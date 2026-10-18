@@ -34,7 +34,7 @@ async function dbTx(names, mode, fn) {
 const reqP = (rq) => new Promise((res, rej) => { rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
 
 /** campos da mídia que vão para o JSON (url/arquivo são recriados ao abrir) */
-const assetMeta = ({ url, file, loading, missing, ...rest }) => (rest.type === 'image' ? { ...rest, thumb: undefined } : rest);
+const assetMeta = ({ url, file, loading, missing, proxyUrl, proxyFile, ...rest }) => (rest.type === 'image' ? { ...rest, thumb: undefined } : rest);
 const assetBlob = async (a) => a.file || (await fetch(a.url)).blob();
 /** reconstrói uma mídia a partir dos metadados salvos e do conteúdo */
 const restoreAsset = (meta, blob) => {
@@ -79,11 +79,15 @@ async function autosaveProject(p) {
     projects.put(doc, 'current');
     // remove mídias que saíram do projeto
     const keys = await reqP(blobs.getAllKeys());
-    for (const k of keys) if (!live.has(k)) blobs.delete(k);
+    // proxies ('proxy:<id>') ficam enquanto a mídia estiver no projeto
+    for (const k of keys) if (!live.has(String(k).startsWith('proxy:') ? String(k).slice(6) : k)) blobs.delete(k);
   });
   for (const [id] of fresh) savedBlobs.add(id);
   for (const id of [...savedBlobs]) if (!live.has(id)) savedBlobs.delete(id);
 }
+/** proxy de prévia guardado neste navegador (ver 38-proxy) */
+const saveProxyBlob = (id, blob) => dbTx(['blobs'], 'readwrite', ({ blobs }) => { blobs.put(blob, 'proxy:' + id); });
+const loadProxyBlob = (id) => dbTx(['blobs'], 'readonly', ({ blobs }) => reqP(blobs.get('proxy:' + id))).catch(() => null);
 async function loadAutosave() {
   return dbTx(['projects', 'blobs'], 'readonly', async ({ projects, blobs }) => {
     const doc = await reqP(projects.get('current'));

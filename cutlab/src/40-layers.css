@@ -201,3 +201,8 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; }
 .perf-ev { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .perf-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 9px; }
 .perf-foot .btn { padding: 5px 10px; font-size: 12px; }
+/* proxies de prévia no cartão da mídia */
+.asset-proxy { position: absolute; left: 6px; right: 6px; bottom: 26px; height: 16px; border-radius: 5px; overflow: hidden; background: rgba(0,0,0,.65); backdrop-filter: blur(6px); }
+.asset-proxy i { position: absolute; inset: 0 auto 0 0; background: rgba(255,45,70,.55); transition: width .3s var(--ease); }
+.asset-proxy span { position: relative; display: block; text-align: center; font: 500 9.5px/16px 'Geist Mono', monospace; color: #fff; }
+.asset-proxy-ok { position: absolute; left: 6px; top: 6px; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,.6); color: var(--text); font: 600 8.5px/14px 'Geist Mono', monospace; letter-spacing: .5px; }
