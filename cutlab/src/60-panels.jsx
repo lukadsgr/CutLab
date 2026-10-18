@@ -32,12 +32,14 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
             <div className="menu-sep" />
             {item('Desfazer', hist.undo, 'Ctrl+Z', !hist.canUndo)}
             {item('Refazer', hist.redo, 'Ctrl+Y', !hist.canRedo)}
-            {item('Recortar clipe', menu.cut, 'Ctrl+X', !menu.hasSelection)}
-            {item('Copiar clipe', menu.copy, 'Ctrl+C', !menu.hasSelection)}
+            {item('Recortar', menu.cut, 'Ctrl+X', !menu.hasSelection)}
+            {item('Copiar', menu.copy, 'Ctrl+C', !menu.hasSelection)}
             {item('Colar no cursor', menu.paste, 'Ctrl+V')}
             <div className="menu-sep" />
-            {item('Criar clipe composto', menu.compound, 'Ctrl+G', !menu.canCompound)}
-            {item('Desfazer clipe composto', menu.ungroup, 'Ctrl+Shift+G', !menu.canUngroup)}
+            {item('Agrupar', menu.group, 'Ctrl+G', !menu.canCompound)}
+            {item('Desagrupar', menu.ungroupClips, 'Ctrl+Shift+G', !menu.canUngroupClips)}
+            {item('Criar clipe composto', menu.compound, 'Alt+G', !menu.canCompound)}
+            {item('Desfazer clipe composto', menu.ungroup, 'Alt+Shift+G', !menu.canUngroup)}
             {item('Remover todos os marcadores', menu.clearMarkers, null, !menu.hasMarkers)}
             {item('Selecionar nada', menu.deselect, 'Esc')}
             <div className="menu-sep" />

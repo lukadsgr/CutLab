@@ -3,7 +3,7 @@
    ===================================================================== */
 // largura do painel de camadas: estado `hw` dentro da Timeline (redimensionável)
 
-function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, onMenu, label: labelColor, locked, dragging }) {
+function ClipView({ c, asset, pps, selected, grouped, onDown, onKfDown, onOpen, onMenu, label: labelColor, locked, dragging }) {
   const left = c.start * pps;
   const width = Math.max(4, c.duration * pps);
   let wave = null;
@@ -20,7 +20,7 @@ function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, onMenu, l
   const icon = { text: 'type', effect: 'sparkles', adjust: 'sliders', compound: 'layers' }[c.type];
   const times = kfTimes(c);
   return (
-    <div data-id={c.id} className={`clip clip-${c.type} ${c.track === 'caption' ? 'clip-caption' : ''} ${selected ? 'sel' : ''} ${locked ? 'locked' : ''} ${dragging ? 'dragging' : ''}`} style={{ left, width, "--label": labelColor }} onPointerDown={(e) => onDown(e, c, 'move')}
+    <div data-id={c.id} className={`clip clip-${c.type} ${c.track === 'caption' ? 'clip-caption' : ''} ${selected ? 'sel' : ''} ${locked ? 'locked' : ''} ${dragging ? 'dragging' : ''} ${grouped ? 'grouped' : ''}`} style={{ left, width, "--label": labelColor }} onPointerDown={(e) => onDown(e, c, 'move')}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onMenu?.(e, c); }}
       onDoubleClick={c.type === 'compound' ? () => onOpen(c.id) : undefined} title={c.type === 'compound' ? 'Clique duplo para editar por dentro' : undefined}>
       {(c.type === 'video' || c.type === 'image') && asset?.thumb && <div className="clip-thumbs" style={{ backgroundImage: `url(${asset.thumb})` }} />}
@@ -30,6 +30,7 @@ function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, onMenu, l
       {c.props.fadeIn > 0 && <div className="clip-fade in" style={{ width: c.props.fadeIn * pps }} />}
       {c.props.fadeOut > 0 && <div className="clip-fade out" style={{ width: c.props.fadeOut * pps }} />}
       <div className="clip-label">
+        {grouped && <span className="clip-grp" title="Em grupo — Ctrl+Shift+G desagrupa"><Icon name="group" size={11} stroke={2.4} /></span>}
         {icon && <Icon name={icon} size={11} stroke={2.4} />}
         {c.speed !== 1 && <em>{+c.speed.toFixed(2)}×</em>}
         {c.props.filter && c.props.filter !== 'none' && <em>{FILTERS.find((f) => f.id === c.props.filter)?.name}</em>}
@@ -88,7 +89,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   /** menu do botão direito num clipe: { id, x, y } */
   const [clipMenu, setClipMenu] = useState(null);
   const openClipMenu = (e, c) => {
-    if (!multi.includes(c.id)) onSelect(c.id);
+    if (c.id !== selectedId && !multi.includes(c.id)) onSetSel([c.id]);
     setClipMenu({ id: c.id, x: e.clientX, y: e.clientY });
   };
   useEffect(() => {
@@ -181,6 +182,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   const total = Math.max(duration + 20, 60);
   const width = total * pps;
   const pairs = useMemo(() => transitionPairs(clips), [clips]);
+  const groups = useMemo(() => liveGroups(clips), [clips]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -291,7 +293,10 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     // clicou num clipe que faz parte de uma seleção múltipla: arrasta o grupo todo
     const selIds = [...multi, selectedId].filter(Boolean);
     if (mode === 'move' && selIds.length > 1 && selIds.includes(clip.id)) { startGroupDrag(e, clip, selIds); return; }
-    onSelect(clip.id);
+    // clipe de um grupo: seleciona e arrasta o grupo inteiro
+    const mates = expandGroups(clips, [clip.id]);
+    if (mode === 'move' && mates.length > 1) { onSetSel(mates); startGroupDrag(e, clip, mates); return; }
+    onSetSel([clip.id]);
     const sx = e.clientX, sy = e.clientY;
     const o = { ...clip };
     const key = 'drag:' + uid();
@@ -398,7 +403,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
         if (fix != null) dt += fix;
       }
       actions.moveClips(orig, Math.max(-minStart, dt), key);
-    }, () => { if (moved) actions.settleGroup([...orig.keys()], key, clips); else onSelect(clip.id); });
+    }, () => { if (moved) actions.settleGroup([...orig.keys()], key, clips); else onSetSel([clip.id]); });
   };
 
   /** arrastar no vazio de uma faixa: caixa de seleção (Ctrl/Shift soma à seleção); clique simples posiciona o cursor */
@@ -479,8 +484,9 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
         <button className="icon-btn" title="Marcador (M): cria no cursor; se já houver um ali, remove · botão direito remove todos" onClick={actions.marker}
           onContextMenu={(e) => { e.preventDefault(); if (markers.length) actions.clearMarkers(); }}><Icon name="marker" size={15} /></button>
         <div className="tl-sep" />
-        <button className="icon-btn" title="Criar clipe composto (Ctrl+G): selecione 2 ou mais clipes com Ctrl+clique" disabled={!actions.canCompound} onClick={actions.compound}><Icon name="layers" size={16} /></button>
-        <button className="icon-btn" title="Desfazer clipe composto (Ctrl+Shift+G)" disabled={!actions.canUngroup} onClick={actions.ungroup}><Icon name="ungroup" size={16} /></button>
+        <button className="icon-btn" title="Agrupar (Ctrl+G): selecione 2 ou mais clipes com Ctrl+clique ou caixa de seleção" disabled={!actions.canCompound} onClick={actions.group}><Icon name="group" size={16} /></button>
+        <button className="icon-btn" title="Desagrupar (Ctrl+Shift+G)" disabled={!actions.canUngroupClips} onClick={actions.ungroupClips}><Icon name="ungroup" size={16} /></button>
+        <button className="icon-btn" title="Criar clipe composto (Alt+G): junta os clipes selecionados num só, com linha do tempo própria" disabled={!actions.canCompound} onClick={actions.compound}><Icon name="layers" size={16} /></button>
         <div className="spacer" />
         <button className={`icon-btn rec-btn ${tools.recording ? 'recording' : ''}`} title={tools.recording ? 'Parar gravação da narração' : 'Gravar narração (microfone) a partir do cursor'} onClick={tools.onRecord}>
           <Icon name="mic" size={16} />{tools.recording && <span className="rec-dot" />}
@@ -553,7 +559,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
                     else onDropTransition(trn, at, rk);
                   }}>
                   {trackClips.map((c) => (
-                    <ClipView key={c.id} c={c} asset={assetMap[c.assetId]} pps={pps} selected={c.id === selectedId || multi.includes(c.id)} dragging={c.id === dragId} onDown={startDrag} onKfDown={startKfDrag} onOpen={actions.enterCompound} onMenu={openClipMenu} label={label} locked={st.lock} />
+                    <ClipView key={c.id} c={c} asset={assetMap[c.assetId]} pps={pps} selected={c.id === selectedId || multi.includes(c.id)} grouped={groups.has(c.group)} dragging={c.id === dragId} onDown={startDrag} onKfDown={startKfDrag} onOpen={actions.enterCompound} onMenu={openClipMenu} label={label} locked={st.lock} />
                   ))}
                   {pairs.filter((pr) => pr.row === rk).map(({ B, d }) => {
                     const w = Math.max(18, d * pps);
@@ -594,11 +600,14 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
           video && { icon: 'freeze', label: 'Congelar quadro', kbd: 'F', run: actions.freeze },
           { icon: 'scissors', label: 'Dividir no cursor', kbd: 'C', run: actions.split },
           'sep',
-          { icon: 'copy', label: 'Copiar', kbd: 'Ctrl C', run: actions.copy },
+          { icon: 'copy', label: multi.length ? `Copiar ${multi.length + 1} clipes` : 'Copiar', kbd: 'Ctrl C', run: actions.copy },
+          { icon: 'copy', label: 'Colar no cursor', kbd: 'Ctrl V', run: actions.paste },
           { icon: 'scissors', label: 'Recortar', kbd: 'Ctrl X', run: actions.cut },
           { icon: 'copy', label: 'Duplicar', kbd: 'Ctrl D', run: actions.duplicate },
-          actions.canCompound && { icon: 'layers', label: 'Criar clipe composto', kbd: 'Ctrl G', run: actions.compound },
-          isCompound(c) && { icon: 'ungroup', label: 'Desfazer composto', kbd: 'Ctrl ⇧ G', run: actions.ungroup },
+          actions.canCompound && { icon: 'group', label: 'Agrupar', kbd: 'Ctrl G', run: actions.group },
+          groups.has(c.group) && { icon: 'ungroup', label: 'Desagrupar', kbd: 'Ctrl ⇧ G', run: actions.ungroupClips },
+          actions.canCompound && { icon: 'layers', label: 'Criar clipe composto', kbd: 'Alt G', run: actions.compound },
+          isCompound(c) && { icon: 'ungroup', label: 'Desfazer composto', kbd: 'Alt ⇧ G', run: actions.ungroup },
           'sep',
           { icon: 'trash', label: 'Excluir', kbd: 'Del', danger: true, run: actions.remove },
         ].filter(Boolean);

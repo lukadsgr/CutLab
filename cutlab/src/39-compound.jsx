@@ -66,3 +66,21 @@ function expandMedia(clips, ts, off = 0, win = null, muted = false, gain = 1, ne
 }
 /** fade de áudio do clipe no instante t, junto com os fades dos compostos em que ele está */
 const audioFade = (c, t) => (c._fades || []).reduce((f, p) => f * fadeFactor(p, t), fadeFactor(c, t));
+
+/* =====================================================================
+   Grupos (Ctrl+G): clipes que continuam na linha do tempo, mas são selecionados,
+   movidos, copiados e excluídos juntos. Cada clipe guarda `group` (id do grupo).
+   ===================================================================== */
+/** ids de grupos que têm pelo menos 2 clipes (grupo de 1 só não vale) */
+function liveGroups(clips) {
+  const n = new Map();
+  for (const c of clips) if (c.group) n.set(c.group, (n.get(c.group) || 0) + 1);
+  return new Set([...n].filter(([, k]) => k > 1).map(([g]) => g));
+}
+/** acrescenta aos `ids` os outros clipes dos grupos deles (os pedidos ficam por último, na mesma ordem) */
+function expandGroups(clips, ids) {
+  const live = liveGroups(clips), want = new Set(ids);
+  const gs = new Set(clips.filter((c) => want.has(c.id) && live.has(c.group)).map((c) => c.group));
+  const mates = clips.filter((c) => !want.has(c.id) && gs.has(c.group)).map((c) => c.id);
+  return [...mates, ...ids];
+}

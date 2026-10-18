@@ -101,11 +101,15 @@ function App() {
 
   const select = useCallback((id) => { setSelectedId(id); setSelectedTr(null); setMulti([]); }, []);
   /** seleção inteira de uma vez (caixa de seleção na linha do tempo) */
-  const setSelection = useCallback((ids) => { setSelectedId(ids[ids.length - 1] ?? null); setMulti(ids.slice(0, -1)); setSelectedTr(null); }, []);
+  const setSelection = useCallback((ids) => {
+    ids = expandGroups(live.current.clips, ids);   // quem está num grupo traz o grupo inteiro
+    setSelectedId(ids[ids.length - 1] ?? null); setMulti(ids.slice(0, -1)); setSelectedTr(null);
+  }, []);
   /** Ctrl/Shift+clique: inclui ou tira o clipe da seleção */
   const toggleSel = useCallback((id) => {
     const cur = [...live.current.multi, live.current.selectedId].filter(Boolean);
-    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    const both = expandGroups(live.current.clips, [id]);   // num grupo, entra ou sai o grupo todo
+    const next = cur.includes(id) ? cur.filter((x) => !both.includes(x)) : [...cur.filter((x) => !both.includes(x)), ...both];
     setSelectedId(next[next.length - 1] ?? null);
     setMulti(next.slice(0, -1));
     setSelectedTr(null);
@@ -569,31 +573,75 @@ function App() {
   const crumbs = path.map((id, i) => ({ depth: i + 1, name: clipsAtPath(rootHist.clips, path.slice(0, i))?.find((c) => c.id === id)?.name || 'Composto' }));
 
   /* ---------- copiar / recortar / colar ---------- */
+  // a área de transferência guarda todos os clipes selecionados (com os grupos inteiros);
+  // ao colar, eles mantêm o espaçamento entre si e a camada de origem, a partir do cursor
   const clipboardRef = useRef(null);
   const copyClip = useCallback(() => {
-    const c = live.current.clips.find((x) => x.id === live.current.selectedId);
-    if (!c) return false;
-    clipboardRef.current = structuredClone(c);
-    notify('Clipe copiado — Ctrl+V cola no cursor');
+    const { clips: cs, selectedId: sid, multi: more } = live.current;
+    if (!sid) return false;
+    const ids = new Set(expandGroups(cs, [...more, sid]));
+    const sel = cs.filter((c) => ids.has(c.id));
+    if (!sel.length) return false;
+    clipboardRef.current = structuredClone(sel);
+    const groups = new Set(sel.map((c) => c.group).filter(Boolean)).size;
+    notify(`${sel.length > 1 ? `${sel.length} clipes copiados` : 'Clipe copiado'}${groups ? ` (${groups} grupo${groups > 1 ? 's' : ''})` : ''} — Ctrl+V cola no cursor`);
     return true;
   }, [notify]);
   const cutClip = useCallback(() => { if (copyClip()) remove(); }, [copyClip, remove]);
   const pasteClip = useCallback(() => {
     const src = clipboardRef.current;
-    if (!src) { notify('Nada copiado ainda — selecione um clipe e use Ctrl+C'); return; }
-    if (src.assetId && !live.current.assetMap[src.assetId]) { notify('A mídia desse clipe não está mais no projeto'); return; }
-    const t = roundFrame(timeRef.current);
-    const clip = { ...reid(structuredClone(src)), start: t, transition: null };
-    if (clip.track !== 'main') {
-      hist.set((cs) => [...cs, { ...clip, lane: freeLane(cs, clip, laneOf(src)) }]);
-      select(clip.id);
-      return;
+    if (!src?.length) { notify('Nada copiado ainda — selecione clipes e use Ctrl+C'); return; }
+    const am = live.current.assetMap;
+    const lost = (c) => (c.assetId && !am[c.assetId]) || (isCompound(c) && c.children.some(lost));
+    const ok = src.filter((c) => !lost(c));
+    if (!ok.length) { notify('A mídia desses clipes não está mais no projeto'); return; }
+    const t = roundFrame(timeRef.current), t0 = Math.min(...ok.map((c) => c.start));
+    // grupos colados viram grupos novos, independentes dos originais
+    const gmap = new Map();
+    const regroup = (g) => g && (gmap.get(g) || gmap.set(g, uid()).get(g));
+    const fresh = ok.map((c) => ({ src: c, clip: { ...reid(structuredClone(c)), group: regroup(c.group) } }));
+    let cs = live.current.clips;
+    // Principal: os clipes entram no cursor, um depois do outro, e o resto anda para a direita
+    const main = fresh.filter((f) => f.clip.track === 'main').sort((x, y) => x.src.start - y.src.start);
+    let at = t;
+    main.forEach((f, i) => {
+      // a transição só fica se o clipe anterior (também colado) estava encostado nele
+      const prev = main[i - 1]?.src, keepTr = prev && Math.abs(prev.start + prev.duration - f.src.start) < 1e-3;
+      f.clip = { ...f.clip, start: at, transition: keepTr ? f.clip.transition : null };
+      cs = insertMain(cs, at, f.clip);
+      at += f.clip.duration;
+    });
+    // outras faixas: mesmo deslocamento em relação ao primeiro clipe, tentando manter a camada de origem
+    for (const f of fresh) {
+      if (f.clip.track === 'main') continue;
+      f.clip = { ...f.clip, start: t + f.src.start - t0, transition: null };
+      cs = [...cs, { ...f.clip, lane: freeLane(cs, f.clip, laneOf(f.src)) }];
     }
-    // na Principal o clipe é inserido no cursor e o resto anda para a direita
-    const out = insertMain(live.current.clips, t, clip);
-    hist.set(() => out);
-    select(clip.id);
-  }, [hist.set, notify, select]);
+    hist.set(() => cs);
+    const ids = fresh.map((f) => f.clip.id);
+    setSelectedId(ids[ids.length - 1]); setMulti(ids.slice(0, -1)); setSelectedTr(null);
+    if (ok.length < src.length) notify('Alguns clipes ficaram de fora: a mídia deles não está mais no projeto');
+  }, [hist.set, notify]);
+
+  /* ---------- grupos ---------- */
+  const groupClips = useCallback(() => {
+    const { clips: cs, selectedId: sid, multi: more, trackState: ts } = live.current;
+    const ids = new Set(expandGroups(cs, [...more, sid].filter(Boolean)));
+    if (ids.size < 2) { notify('Selecione 2 ou mais clipes (Ctrl+clique ou caixa de seleção) para agrupar'); return; }
+    if (cs.some((c) => ids.has(c.id) && ts[clipRow(c)]?.lock)) { notify('Há clipes em camadas bloqueadas na seleção'); return; }
+    const g = uid();
+    hist.set((all) => all.map((c) => (ids.has(c.id) ? { ...c, group: g } : c)));
+    notify(`${ids.size} clipes agrupados — movem, copiam e excluem juntos · Ctrl+Shift+G desagrupa`);
+  }, [hist.set, notify]);
+  const ungroupClips = useCallback(() => {
+    const { clips: cs, selectedId: sid, multi: more } = live.current;
+    const ids = new Set([...more, sid].filter(Boolean));
+    const gs = new Set(cs.filter((c) => ids.has(c.id) && c.group).map((c) => c.group));
+    if (!gs.size) { notify('Selecione um grupo para desagrupar'); return; }
+    hist.set((all) => all.map((c) => (gs.has(c.group) ? { ...c, group: undefined } : c)));
+    notify(gs.size > 1 ? `${gs.size} grupos desfeitos` : 'Grupo desfeito');
+  }, [hist.set, notify]);
+
   /** insere `clip` na Principal em `t` (corta o clipe sob o cursor e empurra o restante) */
   const insertMain = (cs, t, clip) => {
     const inside = cs.find((c) => c.track === 'main' && t > c.start + 0.05 && t < c.start + c.duration - 0.05);
@@ -1485,7 +1533,8 @@ function App() {
       else if (mod && key === 'c') { e.preventDefault(); copyClip(); }
       else if (mod && key === 'x') { e.preventDefault(); cutClip(); }
       else if (mod && key === 'v') { e.preventDefault(); pasteClip(); }
-      else if (mod && key === 'g') { e.preventDefault(); e.shiftKey ? ungroupCompound() : createCompound(); }
+      else if (mod && key === 'g') { e.preventDefault(); e.shiftKey ? ungroupClips() : groupClips(); }
+      else if (e.altKey && key === 'g') { e.preventDefault(); e.shiftKey ? ungroupCompound() : createCompound(); }
       else if (mod) return;
       else if (key === 'c') split();
       else if (key === 'b') setBlade((b) => !b);
@@ -1510,7 +1559,7 @@ function App() {
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
-  }, [togglePlay, remove, split, duplicate, trimSide, keyframeHere, addMarker, openExport, saveProject, openProject, copyClip, cutClip, pasteClip, freezeFrame, createCompound, ungroupCompound, exitTo, hist.undo, hist.redo, seek, select]);
+  }, [togglePlay, remove, split, duplicate, trimSide, keyframeHere, addMarker, openExport, saveProject, openProject, copyClip, cutClip, pasteClip, freezeFrame, createCompound, ungroupCompound, groupClips, ungroupClips, exitTo, hist.undo, hist.redo, seek, select]);
 
   /* ---------- soltar arquivos em qualquer lugar ---------- */
   useEffect(() => {
@@ -1559,6 +1608,7 @@ function App() {
     return at >= end ? end : at;
   };
   const selectedAsset = selected ? assetMap[selected.assetId] : null;
+  const canUngroupClips = useMemo(() => { const g = liveGroups(clips), ids = new Set([...multi, selectedId]); return clips.some((c) => ids.has(c.id) && g.has(c.group)); }, [clips, multi, selectedId]);
   // mídias da biblioteca que estão na linha do tempo (inclusive dentro de compostos): marcadas no painel
   const usedAssets = useMemo(() => {
     const out = new Map();
@@ -1573,6 +1623,7 @@ function App() {
       <input ref={projectFileRef} type="file" hidden accept=".cutlab" onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openProjectFile(f); }} />
       <TopBar name={projectName} setName={setProjectName} onExport={openExport} canExport={duration > 0} hist={hist} saveState={saveState}
         menu={{ newProject, openProject, saveProject, savePackage,copy: copyClip, cut: cutClip, paste: pasteClip, hasSelection: !!selectedId,
+          group: groupClips, ungroupClips, canUngroupClips,
           compound: createCompound, ungroup: ungroupCompound, canCompound: multi.length > 0, canUngroup: isCompound(selected), clearMarkers, hasMarkers: markers.length > 0,
           importMedia: () => importRef.current.click(), deselect: () => select(null), shortcuts: () => setInfo('shortcuts'), about: () => setInfo('about') }} />
       <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
@@ -1624,7 +1675,7 @@ function App() {
         tools={{ crumbs, exitTo, mainMagnet, setMainMagnet, ripple, setRipple, blade, setBlade, linkage, setLinkage, skim, setSkim: (v) => { setSkim(v); if (!v) skimRef.current = null; },
           onSkim: (t) => { skimRef.current = t; }, recording, onRecord: recordVoice }}
         trackState={trackState} toggleTrack={toggleTrack} zoom={zoom} setZoom={setZoom} snap={snap} setSnap={setSnap} markers={markers}
-        actions={{ split, trimSide, remove, duplicate, extractAudio, copy: copyClip, cut: cutClip, bladeAt, moveClips, dragLayout, settleGroup, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
+        actions={{ split, trimSide, remove, duplicate, extractAudio, copy: copyClip, cut: cutClip, paste: pasteClip, group: groupClips, ungroupClips, canUngroupClips, bladeAt, moveClips, dragLayout, settleGroup, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
           removeMarker: (id) => setMarkers((m) => m.filter((x) => x.id !== id)),
           undo: hist.undo, redo: hist.redo, canUndo: hist.canUndo, canRedo: hist.canRedo }} />
       {curveOpen && selected && kfCount(selected) > 0 && (

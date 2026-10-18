@@ -178,3 +178,7 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; }
 .tl-slot { position: absolute; top: 3px; bottom: 3px; border: 1.5px dashed var(--accent); border-radius: 6px; background: rgba(255,45,70,.1); pointer-events: none; z-index: 1; transition: left .12s ease-out; }
 /* a agulha não atravessa o painel de camadas quando a linha do tempo está rolada */
 .tl-playhead.under-head { visibility: hidden; }
+
+/* grupos (Ctrl+G): selo no clipe e borda tracejada quando o grupo não está selecionado */
+.clip-grp { display: inline-flex; align-items: center; padding: 1px 3px; border-radius: 3px; background: rgba(0,0,0,0.5); color: var(--accent); }
+.clip.grouped:not(.sel) { outline: 1px dashed rgba(255,255,255,0.35); outline-offset: -2px; }
