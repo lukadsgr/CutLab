@@ -178,7 +178,7 @@ button:active:not(:disabled) { transform: scale(0.95); }
 .cat-chips, .preset-strip, .speed-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 14px; }
 .preset-strip { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; margin-top: 0; scrollbar-width: none; }
 .preset-strip::-webkit-scrollbar { display: none; }
-.preset-strip .chip { animation: cardIn 0.4s var(--ease) both; animation-delay: calc(var(--i, 0) * 30ms); }
+.preset-strip .chip { flex-shrink: 0; animation: cardIn 0.4s var(--ease) both; animation-delay: calc(var(--i, 0) * 30ms); }
 
 /* ---------- abas segmentadas com indicador ---------- */
 .seg-tabs { position: relative; display: flex; gap: 2px; }
@@ -194,7 +194,9 @@ button:active:not(:disabled) { transform: scale(0.95); }
 .seg-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
 .insp-tabs { padding: 0 10px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; display: block; }
 .insp-tabs::-webkit-scrollbar { display: none; }
-.insp-subtabs { padding: 10px 12px 4px; }
+.insp-subtabs { padding: 10px 12px 4px; overflow-x: auto; scrollbar-width: none; }
+.insp-subtabs::-webkit-scrollbar { display: none; }
+.insp-subtabs .seg-tabs { width: max-content; min-width: 100%; }
 .speed-panel > .seg-tabs, .anim-panel > .seg-tabs { margin-bottom: 4px; }
 .tab-pane { padding-top: 14px; }
 

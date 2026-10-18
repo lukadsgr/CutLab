@@ -11,6 +11,8 @@ function SegTabs({ items, value, onChange, variant = 'pill', dots = {} }) {
     if (el) setInd({ x: el.offsetLeft, w: el.offsetWidth });
   }, []);
   useLayoutEffect(measure, [value, items.join('|'), measure]);
+  // em painéis estreitos a faixa rola: mantém a aba ativa visível
+  useEffect(() => { ref.current?.querySelector('[data-on="1"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [value]);
   useEffect(() => {
     const ro = new ResizeObserver(measure);
     ro.observe(ref.current);
@@ -100,6 +102,7 @@ function ColorPanel({ sub, clip, p, S, setProps, kfNav, api, tool, setTool }) {
 
       {sub === 'HSL' && <HslPanel clip={clip} p={p} S={S} setProps={setProps} kfNav={kfNav} api={api} tool={tool} setTool={setTool} />}
       {sub === 'Curvas' && <CurvesPanel clip={clip} p={p} setProps={setProps} api={api} />}
+      {sub === 'Estilo' && <StylePanel clip={clip} p={p} S={S} setProps={setProps} kfNav={kfNav} api={api} tool={tool} setTool={setTool} />}
       {sub === 'Roda de cores' && (
         <Section title="Roda de cores" checked={p.wheelsOn} onCheck={(v) => setProps(id, { wheelsOn: v })}
           onReset={() => setProps(id, { ...Object.fromEntries(WHEEL_KEYS.map((k) => [k, 0])), wheelAmt: 100 })} kf={kfNav([...WHEEL_KEYS, 'wheelAmt'])}>
@@ -167,6 +170,64 @@ function HslPanel({ clip, p, S, setProps, kfNav, api, tool, setTool }) {
       {S('Brilho', keys[2], -100, 100, 1, { track: `linear-gradient(90deg,#000,${R.color},#fff)` })}
     </Section>
   );
+}
+
+const STYLE_PRESETS = [
+  { name: 'Negativo', v: { stInvert: 100 } },
+  { name: 'Raio-X', v: { stDuo: 100, stDuoA: '#dff3ff', stDuoB: '#03111f' } },
+  { name: 'Solarizado', v: { stSolar: 100 } },
+  { name: 'Pop art', v: { stPoster: 4 } },
+  { name: 'Quadrinho', v: { stThresh: 100, stThreshLvl: 45 } },
+  { name: 'Duotone', v: { stDuo: 100 } },
+  { name: 'Só o vermelho', v: { stIso: 100, stIsoHue: 0, stIsoRange: 30 } },
+];
+const TRACK_HUE = 'linear-gradient(90deg,#f00,#ff0 17%,#0f0 33%,#0ff 50%,#00f 67%,#f0f 83%,#f00)';
+
+function StylePanel({ clip, p, S, setProps, kfNav, api, tool, setTool }) {
+  const id = clip.id;
+  const pick = () => {
+    if (tool === 'colorpick') { setTool(null); return; }
+    api.onPick((rgb) => {
+      const [h, s] = rgb2hsl(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+      if (s < 0.08) { api.notify('Cor sem saturação — escolha uma área colorida'); return; }
+      setProps(id, { stIsoHue: Math.round(h), stIso: p.stIso || 100 });
+    });
+    setTool('colorpick');
+  };
+  const color = (label, k) => (
+    <div className="row-between"><label className="kbd">{label}</label>
+      <input type="color" className="color" value={p[k]} onChange={(e) => setProps(id, { [k]: e.target.value }, `p:${id}:${k}`)} /></div>
+  );
+  return (<>
+    <div className="preset-strip">
+      {STYLE_PRESETS.map((pr, i) => (
+        <button key={pr.name} className="chip" style={{ '--i': i }} onClick={() => setProps(id, { ...STYLE_DEFAULTS, ...pr.v })}>{pr.name}</button>
+      ))}
+    </div>
+    <Section title="Estilo" checked={p.styleOn} onCheck={(v) => setProps(id, { styleOn: v })}
+      onReset={() => setProps(id, STYLE_DEFAULTS)} kf={kfNav(['stInvert', 'stSolar', 'stPoster', 'stThresh', 'stThreshLvl', 'stDuo', 'stIso', 'stIsoHue', 'stIsoRange'])}>
+      <div className="group-label">Tons</div>
+      {S('Inverter cores', 'stInvert', 0, 100)}
+      {S('Solarizar', 'stSolar', 0, 100)}
+      {S('Posterizar (níveis)', 'stPoster', 0, 16)}
+      <div className="group-label">Limiar (preto e branco puro)</div>
+      {S('Intensidade', 'stThresh', 0, 100)}
+      {S('Ponto de corte', 'stThreshLvl', 0, 100, 1, { track: TRACK_LUM })}
+      <div className="group-label">Duotone</div>
+      {S('Intensidade', 'stDuo', 0, 100)}
+      {color('Sombras', 'stDuoA')}
+      {color('Realces', 'stDuoB')}
+      <div className="group-label">Isolar cor</div>
+      <div className="hsl-row">
+        <button className={`tool round ${tool === 'colorpick' ? 'on' : ''}`} title="Conta-gotas: clique na cor a manter no reprodutor" onClick={pick}><Icon name="pipette" size={14} /></button>
+        <span className="hsl-dot on" style={{ '--c': `hsl(${p.stIsoHue},90%,55%)` }} />
+      </div>
+      {S('Intensidade', 'stIso', 0, 100)}
+      {S('Cor mantida', 'stIsoHue', 0, 360, 1, { track: TRACK_HUE })}
+      {S('Alcance', 'stIsoRange', 5, 120)}
+      <div className="hint">Posterizar abaixo de 2 fica desligado. Isolar cor deixa tudo em cinza, menos a cor escolhida.</div>
+    </Section>
+  </>);
 }
 
 const CURVE_CH = [

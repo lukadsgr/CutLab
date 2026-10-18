@@ -28,7 +28,16 @@ const GRADE_BASIC = ['gTemp', 'gTint', 'gSat', 'gExposure', 'gContrast', 'gHighl
 const GRADE_FX = ['sharpen', 'bloom', 'gGrain', 'gVignette'];
 const HSL_KEYS = HSL_RANGES.flatMap((r) => ['h', 's', 'l'].map((k) => `hsl_${r.id}_${k}`));
 const WHEEL_KEYS = WHEELS.flatMap((w) => ['x', 'y', 'l'].map((k) => `wh_${w.id}_${k}`));
+/* estilização (aba Estilo): aplicada no shader depois da LUT, com precisão total
+   (posterizar e limiar precisam de degraus nítidos que a LUT de 33³ suavizaria) */
+const STYLE_DEFAULTS = {
+  styleOn: true, stInvert: 0, stSolar: 0, stPoster: 0, stThresh: 0, stThreshLvl: 50,
+  stDuo: 0, stDuoA: '#1d1145', stDuoB: '#ffc94a', stIso: 0, stIsoHue: 0, stIsoRange: 30,
+};
+const STYLE_KEYS = Object.keys(STYLE_DEFAULTS);
+const styleActive = (p) => !!(p.styleOn && (p.stInvert || p.stSolar || p.stPoster >= 2 || p.stThresh || p.stDuo || p.stIso));
 const GRADE_DEFAULTS = {
+  ...STYLE_DEFAULTS,
   gradeOn: true, hslOn: true, curvesOn: true, wheelsOn: true,
   autoOn: false, autoAmt: 80, autoLo: [0, 0, 0], autoHi: [1, 1, 1],
   matchOn: false, matchAmt: 80, matchGain: [1, 1, 1], matchOff: [0, 0, 0], matchRef: '',
@@ -47,7 +56,7 @@ function gradeActive(p) {
   if (p.hslOn && HSL_KEYS.some((k) => p[k])) return true;
   if (p.curvesOn && !(isIdCurve(p.curveL) && isIdCurve(p.curveR) && isIdCurve(p.curveG) && isIdCurve(p.curveB))) return true;
   if (p.wheelsOn && p.wheelAmt && WHEEL_KEYS.some((k) => p[k])) return true;
-  return false;
+  return styleActive(p);
 }
 const gradeSpatial = (p) => p.gradeOn && (p.gGrain > 0 || p.gVignette);
 
@@ -204,7 +213,7 @@ const LUT_N = 33;
 const _lutCache = new Map();
 function gradeKey(p) {
   const o = {};
-  for (const k of GRADE_KEYS) if (!GRADE_FX.includes(k)) o[k] = p[k];
+  for (const k of GRADE_KEYS) if (!GRADE_FX.includes(k) && !STYLE_KEYS.includes(k)) o[k] = p[k];
   return JSON.stringify(o);
 }
 function buildLUT(p) {
@@ -235,6 +244,48 @@ function buildLUT(p) {
   return hit;
 }
 
+/* ---------- estilização: parâmetros normalizados + versão CPU ---------- */
+const _hex01 = (h) => { const n = parseInt((h || '#000000').slice(1), 16); return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
+/** parâmetros do shader (tudo 0 = sem estilização) */
+function styleParams(p) {
+  if (!styleActive(p)) return null;
+  return {
+    inv: clamp(p.stInvert / 100, 0, 1), sol: clamp(p.stSolar / 100, 0, 1),
+    post: p.stPoster >= 2 ? Math.round(clamp(p.stPoster, 2, 32)) : 0,
+    thr: clamp(p.stThresh / 100, 0, 1), thrL: clamp(p.stThreshLvl / 100, 0, 1),
+    duo: clamp(p.stDuo / 100, 0, 1), duoA: _hex01(p.stDuoA), duoB: _hex01(p.stDuoB),
+    iso: clamp(p.stIso / 100, 0, 1), isoH: ((p.stIsoHue % 360) + 360) % 360, isoR: clamp(p.stIsoRange, 2, 180),
+  };
+}
+/** mesma matemática do shader, para a alternativa sem WebGL */
+function stylePixel(r, g, b, s) {
+  let L = luma(r, g, b);
+  if (s.iso) {
+    const [h, sat] = rgb2hsl(r, g, b);
+    let d = Math.abs(h - s.isoH); d = Math.min(d, 360 - d);
+    const keep = (1 - smooth(s.isoR * 0.6, s.isoR, d)) * smooth(0.04, 0.18, sat);
+    const a = s.iso * (1 - keep);
+    r += (L - r) * a; g += (L - g) * a; b += (L - b) * a;
+  }
+  if (s.duo) {
+    L = luma(r, g, b);
+    const A = s.duoA, B = s.duoB;
+    r += (A[0] + (B[0] - A[0]) * L - r) * s.duo; g += (A[1] + (B[1] - A[1]) * L - g) * s.duo; b += (A[2] + (B[2] - A[2]) * L - b) * s.duo;
+  }
+  let c = [r, g, b];
+  if (s.post) c = c.map((v) => Math.min(Math.floor(clamp(v, 0, 1) * s.post), s.post - 1) / (s.post - 1));
+  if (s.sol) {
+    const t = 1 - s.sol * 0.5;
+    c = c.map((v) => (v <= t ? v : (t * (1 - v)) / Math.max(1e-4, 1 - t)));
+  }
+  if (s.thr) {
+    const w = smooth(s.thrL - 0.01, s.thrL + 0.01, luma(c[0], c[1], c[2]));
+    c = c.map((v) => v + (w - v) * s.thr);
+  }
+  if (s.inv) c = c.map((v) => v + (1 - 2 * v) * s.inv);
+  return c;
+}
+
 /* ---------- aplicação na GPU (WebGL2) com alternativa na CPU ---------- */
 class LutGL {
   constructor() {
@@ -248,11 +299,36 @@ class LutGL {
     const fs = `#version 300 es
       precision highp float; precision highp sampler3D;
       uniform sampler2D img; uniform sampler3D lut; uniform float n;
+      uniform float uInv, uSol, uPost, uThr, uThrL, uDuo, uIso, uIsoH, uIsoR;
+      uniform vec3 uDuoA, uDuoB;
       in vec2 uv; out vec4 o;
+      const vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+      vec2 hueSat(vec3 c){
+        float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b)), d = mx - mn, l = (mx + mn) * 0.5;
+        if (d < 1e-5) return vec2(0.0);
+        float s = l > 0.5 ? d / (2.0 - mx - mn) : d / (mx + mn);
+        float h = mx == c.r ? (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0) : mx == c.g ? (c.b - c.r) / d + 2.0 : (c.r - c.g) / d + 4.0;
+        return vec2(h * 60.0, s);
+      }
       void main(){
         vec4 c = texture(img, uv);
         vec3 s = (clamp(c.rgb, 0.0, 1.0) * (n - 1.0) + 0.5) / n;
-        o = vec4(texture(lut, s).rgb, c.a);
+        vec3 r = texture(lut, s).rgb;
+        if (uIso > 0.0) {
+          vec2 hs = hueSat(r);
+          float d = abs(hs.x - uIsoH); d = min(d, 360.0 - d);
+          float keep = (1.0 - smoothstep(uIsoR * 0.6, uIsoR, d)) * smoothstep(0.04, 0.18, hs.y);
+          r = mix(r, vec3(dot(r, LW)), uIso * (1.0 - keep));
+        }
+        if (uDuo > 0.0) r = mix(r, mix(uDuoA, uDuoB, dot(r, LW)), uDuo);
+        if (uPost >= 2.0) r = min(floor(clamp(r, 0.0, 1.0) * uPost), uPost - 1.0) / (uPost - 1.0);
+        if (uSol > 0.0) {
+          float t = 1.0 - uSol * 0.5;
+          r = mix(r, t * (1.0 - r) / max(1e-4, 1.0 - t), vec3(greaterThan(r, vec3(t))));
+        }
+        if (uThr > 0.0) r = mix(r, vec3(smoothstep(uThrL - 0.01, uThrL + 0.01, dot(r, LW))), uThr);
+        if (uInv > 0.0) r = mix(r, 1.0 - r, uInv);
+        o = vec4(clamp(r, 0.0, 1.0), c.a);
       }`;
     const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
     const prog = gl.createProgram();
@@ -278,12 +354,19 @@ class LutGL {
     gl.uniform1i(gl.getUniformLocation(prog, 'img'), 0);
     gl.uniform1i(gl.getUniformLocation(prog, 'lut'), 1);
     gl.uniform1f(gl.getUniformLocation(prog, 'n'), LUT_N);
+    this.u = Object.fromEntries(['uInv', 'uSol', 'uPost', 'uThr', 'uThrL', 'uDuo', 'uIso', 'uIsoH', 'uIsoR', 'uDuoA', 'uDuoB'].map((k) => [k, gl.getUniformLocation(prog, k)]));
     this.lutKey = null;
   }
-  /** aplica a LUT sobre o canvas S (in-place) */
-  apply(S, lut) {
+  /** aplica a LUT (e a estilização st, se houver) sobre o canvas S (in-place) */
+  apply(S, lut, st = null) {
     const gl = this.gl;
-    if (!gl || gl.isContextLost()) return this.cpu(S, lut);
+    if (!gl || gl.isContextLost()) return this.cpu(S, lut, st);
+    const s = st || { inv: 0, sol: 0, post: 0, thr: 0, thrL: 0.5, duo: 0, duoA: [0, 0, 0], duoB: [1, 1, 1], iso: 0, isoH: 0, isoR: 30 };
+    const U = this.u;
+    gl.uniform1f(U.uInv, s.inv); gl.uniform1f(U.uSol, s.sol); gl.uniform1f(U.uPost, s.post);
+    gl.uniform1f(U.uThr, s.thr); gl.uniform1f(U.uThrL, s.thrL); gl.uniform1f(U.uDuo, s.duo);
+    gl.uniform3fv(U.uDuoA, s.duoA); gl.uniform3fv(U.uDuoB, s.duoB);
+    gl.uniform1f(U.uIso, s.iso); gl.uniform1f(U.uIsoH, s.isoH); gl.uniform1f(U.uIsoR, s.isoR);
     const w = S.width, h = S.height;
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
     gl.viewport(0, 0, w, h);
@@ -304,12 +387,15 @@ class LutGL {
     x.drawImage(this.canvas, 0, 0);
     x.restore();
   }
-  cpu(S, lut) {
+  cpu(S, lut, st) {
     const x = S.getContext('2d', { willReadFrequently: true });
     const img = x.getImageData(0, 0, S.width, S.height), d = img.data, L = lut.data, N = LUT_N, f = (N - 1) / 255;
     for (let i = 0; i < d.length; i += 4) {
       const j = (Math.round(d[i + 2] * f) * N * N + Math.round(d[i + 1] * f) * N + Math.round(d[i] * f)) * 4;
-      d[i] = L[j]; d[i + 1] = L[j + 1]; d[i + 2] = L[j + 2];
+      if (st) {
+        const c = stylePixel(L[j] / 255, L[j + 1] / 255, L[j + 2] / 255, st);
+        d[i] = c[0] * 255 + 0.5; d[i + 1] = c[1] * 255 + 0.5; d[i + 2] = c[2] * 255 + 0.5;
+      } else { d[i] = L[j]; d[i + 1] = L[j + 1]; d[i + 2] = L[j + 2]; }
     }
     x.putImageData(img, 0, 0);
   }
@@ -319,7 +405,7 @@ const lutGL = () => (_lutGL ||= new LutGL());
 
 /** aplica correção de cor + efeitos espaciais da aba Ajuste num canvas (in-place) */
 function gradeCanvas(S, p, k, t = 0) {
-  if (gradeActive(p)) lutGL().apply(S, buildLUT(p));
+  if (gradeActive(p)) lutGL().apply(S, buildLUT(p), styleParams(p));
   if (gradeSpatial(p)) {
     const x = S.getContext('2d');
     const w = S.width, h = S.height;

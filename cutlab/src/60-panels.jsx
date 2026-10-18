@@ -487,7 +487,7 @@ function BlendSelect({ value, onChange, onPreview }) {
   );
 }
 
-const COLOR_SUBS = ['Básico', 'HSL', 'Curvas', 'Roda de cores'];
+const COLOR_SUBS = ['Básico', 'HSL', 'Curvas', 'Roda de cores', 'Estilo'];
 const TAB_DEFS = {
   video: [{ id: 'Vídeo', subs: ['Básico', 'Remover fundo', 'Máscara', 'Retoque'] }, { id: 'Áudio' }, { id: 'Velocidade' }, { id: 'Animação' }, { id: 'Ajuste', subs: COLOR_SUBS }],
   image: [{ id: 'Imagem', subs: ['Básico', 'Remover fundo', 'Máscara', 'Retoque'] }, { id: 'Animação' }, { id: 'Ajuste', subs: COLOR_SUBS }],
