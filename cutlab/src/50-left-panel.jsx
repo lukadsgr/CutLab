@@ -73,6 +73,12 @@ function Card({ title, children, onClick, drag, fav, onFav, active }) {
   );
 }
 
+/** miniatura do sticker com a mesma imagem que vai para o vídeo (cai para o emoji do sistema sem internet) */
+function StickerIcon({ e }) {
+  const [bad, setBad] = useState(false);
+  return bad ? e : <img className="emoji-img" src={emojiUrl(e)} alt={e} draggable={false} onError={() => setBad(true)} />;
+}
+
 function LeftPanel(props) {
   const { assets, onImport, onAddAsset, onRemoveAsset, onAddText, onAddSticker, onAddColor, onAddSfx, selected, selectedAsset,
     onApplyFilter, onAddEffect, onApplyTransition, onAddAdjust, onApplyTemplate, captions } = props;
@@ -207,7 +213,7 @@ function LeftPanel(props) {
             {list.map((s) => (
               <div key={s.cat + s.id} className="emoji" onClick={() => onAddSticker(s.id)} onContextMenu={(e) => { e.preventDefault(); toggleFav(`sticker:${s.id}`); }}
                 title="Clique para adicionar · botão direito para favoritar">
-                {s.id}{favs.has(`sticker:${s.id}`) && <span className="emoji-fav">★</span>}
+                <StickerIcon e={s.id} />{favs.has(`sticker:${s.id}`) && <span className="emoji-fav">★</span>}
               </div>
             ))}
           </div>

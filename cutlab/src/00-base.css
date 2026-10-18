@@ -83,6 +83,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 6px; }
 .emoji { font-size: 26px; aspect-ratio: 1; display: grid; place-items: center; border-radius: 8px; background: var(--panel-2); border: 1px solid transparent; cursor: pointer; }
 .emoji:hover { border-color: var(--accent); }
+.emoji-img { width: 62%; height: 62%; pointer-events: none; }
 .hint { color: var(--muted); font-size: 12px; line-height: 1.5; background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
 
 /* ---------- player ---------- */

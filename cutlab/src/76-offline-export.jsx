@@ -128,6 +128,7 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
   try {
     onProgress(0, 'Abrindo os vídeos…');
     await engine.warmSources(clips, assetMap);
+    await preloadStickers(clips);
     for (let i = 0; i < N; i++) {
       if (isCancelled()) throw new DOMException('cancelado', 'AbortError');
       if (failure) throw failure;

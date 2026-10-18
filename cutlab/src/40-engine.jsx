@@ -4,6 +4,73 @@
 const ANIM_T = 0.5;
 /** texto feito só de emojis (stickers) */
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Modifier}‍️\s]+$/u;
+const isSticker = (p) => !p.bg && EMOJI_ONLY.test(p.text || '');
+
+/*
+ * Stickers são desenhados como imagem, não como fonte: em várias GPUs o Chrome/Opera
+ * para de aumentar o emoji do sistema acima de ~250px ou o desenha como um borrão
+ * que cobre o quadro. Twemoji em SVG fica nítido em qualquer tamanho; enquanto
+ * carrega (ou sem internet) usamos um bitmap pequeno ampliado, que não sofre do bug.
+ */
+const TWEMOJI = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/';
+const graphemes = (s) => (Intl.Segmenter ? [...new Intl.Segmenter().segment(s)].map((g) => g.segment) : [...s]);
+function emojiUrl(e) {
+  const cps = [...e].map((ch) => ch.codePointAt(0).toString(16));
+  return `${TWEMOJI}${(e.includes('‍') ? cps : cps.filter((c) => c !== 'fe0f')).join('-')}.svg`;
+}
+const EMOJI_IMG = new Map();
+function emojiImage(e) {
+  let r = EMOJI_IMG.get(e);
+  if (!r) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous'; // sem isso o canvas fica "sujo" e a exportação falha
+    r = { img, ok: false, done: null };
+    r.done = new Promise((res) => { img.onload = () => { r.ok = true; res(); }; img.onerror = () => res(); });
+    img.src = emojiUrl(e);
+    EMOJI_IMG.set(e, r);
+  }
+  return r;
+}
+const EMOJI_BMP = new Map();
+function emojiBitmap(e) {
+  let cv = EMOJI_BMP.get(e);
+  if (!cv) {
+    const S = 128;
+    cv = document.createElement('canvas');
+    cv.width = cv.height = S * 1.25;
+    const x = cv.getContext('2d');
+    x.font = `${S}px sans-serif`;
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.fillText(e, cv.width / 2, cv.height / 2 + S * 0.06);
+    EMOJI_BMP.set(e, cv);
+  }
+  return cv;
+}
+/** espera as imagens dos stickers (exportação offline desenha cada quadro uma vez só) */
+function preloadStickers(clips) {
+  const out = [];
+  const walk = (cs) => cs.forEach((c) => {
+    if (c.children) walk(c.children);
+    if (c.type === 'text' && isSticker(c.props || {})) for (const e of graphemes(c.props.text).filter((g) => g.trim())) out.push(emojiImage(e).done);
+  });
+  walk(clips);
+  return Promise.race([Promise.all(out), new Promise((r) => setTimeout(r, 8000))]);
+}
+/** desenha o sticker centrado na origem; devolve a caixa [w, h] */
+function drawSticker(ctx, p, size) {
+  const rows = (p.text || '').split('\n').map((l) => graphemes(l).filter((g) => g.trim()));
+  const cell = size * 1.05;
+  const cols = Math.max(1, ...rows.map((r) => r.length));
+  const w = cols * cell, h = rows.length * cell;
+  rows.forEach((row, ri) => row.forEach((e, ci) => {
+    const x = -row.length * cell / 2 + ci * cell, y = -h / 2 + ri * cell;
+    const r = emojiImage(e);
+    if (r.ok) ctx.drawImage(r.img, x + cell * 0.04, y + cell * 0.04, cell * 0.92, cell * 0.92);
+    else ctx.drawImage(emojiBitmap(e), x - cell * 0.1, y - cell * 0.1, cell * 1.2, cell * 1.2);
+  }));
+  return [w, h];
+}
 const easeBack = (p) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
 
 function fadeFactor(c, t) {
@@ -281,8 +348,10 @@ class Engine {
     ctx.font = `${p.italic ? 'italic ' : ''}${p.bold ? 700 : 400} ${size}px "${p.fontFamily}", sans-serif`;
     const lines = (p.text || ' ').split('\n');
     const maxW = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
-    // sticker (só emoji, sem fundo): caixa justa no desenho, senão a área de clique cobre quase o quadro todo
-    if (!p.bg && EMOJI_ONLY.test(p.text || '')) return [maxW * 0.86, size * 1.12 * lines.length];
+    if (isSticker(p)) {
+      const rows = lines.map((l) => graphemes(l).filter((g) => g.trim()).length);
+      return [Math.max(1, ...rows) * size * 1.05, lines.length * size * 1.05];
+    }
     return [maxW + size * 0.8, size * 1.22 * lines.length + size * 0.44];
   }
   /** desenha a linha do tempo interna do composto num canvas próprio (transparente onde não há nada) */
@@ -540,6 +609,7 @@ class Engine {
   }
   drawText(ctx, c, p, local, k) {
     const size = p.fontSize * k;
+    if (isSticker(p)) return drawSticker(ctx, p, size);
     ctx.font = `${p.italic ? 'italic ' : ''}${p.bold ? 700 : 400} ${size}px "${p.fontFamily}", sans-serif`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
@@ -640,8 +710,6 @@ class Engine {
         ctx.restore();
       }
     });
-    // sticker: caixa de seleção justa no emoji (mesma regra de measureText)
-    if (!p.bg && EMOJI_ONLY.test(p.text || '')) return [maxW * 0.86, size * 1.12 * lines.length];
     return [bw, bh];
   }
 }
