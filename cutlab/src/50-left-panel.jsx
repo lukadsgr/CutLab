@@ -80,7 +80,7 @@ function StickerIcon({ e }) {
 }
 
 function LeftPanel(props) {
-  const { assets, onImport, onAddAsset, onRemoveAsset, onAddText, onAddSticker, onAddColor, onAddSfx, selected, selectedAsset,
+  const { assets, usedAssets = new Map(), onImport, onAddAsset, onRemoveAsset, onAddText, onAddSticker, onAddColor, onAddSfx, selected, selectedAsset,
     onApplyFilter, onAddEffect, onApplyTransition, onAddAdjust, onApplyTemplate, captions } = props;
   const [tab, setTab] = useState('media');
   const [cats, setCats] = useState(DEFAULT_CAT);
@@ -120,6 +120,7 @@ function LeftPanel(props) {
       </div>
       <div className="asset-name">{a.name}</div>
       {a.duration && a.type !== 'image' ? <span className="asset-badge">{fmtDur(a.duration)}</span> : null}
+      {usedAssets.has(a.id) && <span className="asset-used" title={`Na linha do tempo (${usedAssets.get(a.id)} clipe${usedAssets.get(a.id) > 1 ? 's' : ''})`}><Icon name="check" size={11} stroke={3} /></span>}
       {!a.loading && !a.error && <button className="asset-add" title="Adicionar à linha do tempo" onClick={() => onAddAsset(a)}><Icon name="plus" size={14} stroke={2.5} /></button>}
       <button className="asset-del" title="Remover da biblioteca" onClick={() => onRemoveAsset(a.id)}><Icon name="x" size={11} stroke={2.5} /></button>
       {a.loading && <div className="asset-loading">Processando…</div>}
@@ -128,7 +129,7 @@ function LeftPanel(props) {
   );
   const audioRow = (a) => (
     <div key={a.id} className="list-item" draggable={!a.loading} onDragStart={(e) => e.dataTransfer.setData('text/asset', a.id)} onDoubleClick={() => onAddAsset(a)}>
-      <div className="li-icon"><Icon name="music" size={15} /></div>
+      <div className="li-icon">{usedAssets.has(a.id) ? <span className="asset-used inline" title="Na linha do tempo"><Icon name="check" size={11} stroke={3} /></span> : null}<Icon name="music" size={15} /></div>
       <div className="li-text">
         <div className="li-name" title={a.name}>{a.name}</div>
         {a.peaks ? <MiniWave peaks={a.peaks} className="mini-wave" /> : null}

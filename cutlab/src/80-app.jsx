@@ -587,6 +587,38 @@ function App() {
     select(copy.id);
   }, [hist.set, select]);
 
+  /**
+   * Extrai o áudio do vídeo para a faixa Áudio: novo clipe no mesmo tempo e trecho (velocidade,
+   * volume, fades e keyframes de volume vão junto) e o vídeo fica mudo. Como começa junto com
+   * o vídeo, acompanha o clipe quando ele é movido na faixa principal.
+   */
+  const extractAudio = useCallback((id) => {
+    const c = live.current.clips.find((x) => x.id === id);
+    if (!c || c.type !== 'video') return;
+    if ((c.props.volume ?? 100) === 0 && !c.keyframes?.volume?.length) { notify('O áudio deste vídeo já foi extraído (ou ele está mudo)'); return; }
+    const a = assetMap[c.assetId];
+    const audio = {
+      ...makeClip('audio', { assetId: c.assetId, track: 'audio', name: `${c.name} · áudio`, duration: c.duration }),
+      start: c.start, in: c.in, speed: c.speed, ...(c.speedCurve ? { speedCurve: c.speedCurve } : {}),
+      keyframes: c.keyframes?.volume ? { volume: c.keyframes.volume } : {},
+      props: { ...BASE_PROPS, volume: c.props.volume ?? 100, fadeIn: c.props.fadeIn || 0, fadeOut: c.props.fadeOut || 0 },
+    };
+    const { volume: _v, ...restKf } = c.keyframes || {};
+    hist.set((cs) => [
+      ...cs.map((x) => (x.id === id ? { ...x, keyframes: restKf, props: { ...x.props, volume: 0 } } : x)),
+      { ...audio, lane: freeLane(cs, audio, 0) },
+    ]);
+    select(audio.id);
+    notify('Áudio extraído para a faixa Áudio');
+    // forma de onda: o vídeo não tem uma; calcula a partir do áudio dele (em segundo plano)
+    if (a && !a.peaks) {
+      const whole = { ...makeClip('audio', { assetId: a.id, track: 'audio', duration: a.duration }), start: 0 };
+      mixProjectAudio([whole], { [a.id]: a }, {}, a.duration, 8000)
+        .then((buf) => setAssets((as) => as.map((x) => (x.id === a.id ? { ...x, peaks: computePeaks(buf) } : x))))
+        .catch(() => {});
+    }
+  }, [hist.set, notify, select, assetMap]);
+
   /** M: cria um marcador no cursor — ou remove, se já houver um ali */
   const addMarker = useCallback(() => setMarkers((m) => {
     const t = timeRef.current, near = m.find((x) => Math.abs(x.t - t) < FRAME * 1.5);
@@ -1396,7 +1428,24 @@ function App() {
     window.addEventListener('pointerup', up);
   };
 
+  /**
+   * onde a mídia solta na linha do tempo começa: faixa vazia → no início; solta depois do
+   * último clipe → encostada no fim dele (sem buraco); por cima/entre clipes → onde foi solta
+   */
+  const dropStart = (track, lane, at) => {
+    const row = live.current.clips.filter((c) => c.track === track && laneOf(c) === (lane || 0));
+    if (!row.length) return 0;
+    const end = Math.max(...row.map((c) => c.start + c.duration));
+    return at >= end ? end : at;
+  };
   const selectedAsset = selected ? assetMap[selected.assetId] : null;
+  // mídias da biblioteca que estão na linha do tempo (inclusive dentro de compostos): marcadas no painel
+  const usedAssets = useMemo(() => {
+    const out = new Map();
+    const walk = (cs) => cs.forEach((c) => { if (c.assetId) out.set(c.assetId, (out.get(c.assetId) || 0) + 1); if (c.children) walk(c.children); });
+    walk(rootHist.clips);
+    return out;
+  }, [rootHist.clips]);
 
   return (
     <div className="app" style={{ '--tl-h': `${fit.tl}px` }}>
@@ -1410,7 +1459,7 @@ function App() {
         <filter id="cl-sharpen"><feConvolveMatrix order="3" kernelMatrix="0 -1 0 -1 5 -1 0 -1 0" preserveAlpha="true" /></filter>
       </svg>
       <div className="workspace" style={{ gridTemplateColumns: `${fit.left}px 5px minmax(0, 1fr) 5px ${fit.right}px` }}>
-        <LeftPanel assets={assets} onImport={importFiles} onAddAsset={(a) => addAsset(a)} onRemoveAsset={removeAsset}
+        <LeftPanel assets={assets} usedAssets={usedAssets} onImport={importFiles} onAddAsset={(a) => addAsset(a)} onRemoveAsset={removeAsset}
           onAddText={addText} onAddSticker={addSticker} onAddColor={addColor} onAddSfx={addSfx}
           selected={selected} selectedAsset={selectedAsset} onApplyFilter={applyFilter}
           onAddEffect={(id) => addEffect(id)} onApplyTransition={(id) => applyTransition(id)} onAddAdjust={addAdjust}
@@ -1439,7 +1488,7 @@ function App() {
       <Timeline clips={clips} assetMap={assetMap} time={time} duration={duration} playing={playing}
         selectedId={selectedId} multi={multi} onSelect={select} onToggleSel={toggleSel} onSetSel={setSelection} selectedTr={selectedTr} onSelectTr={(id) => { setSelectedId(null); setSelectedTr(id); }}
         onSeek={(t) => { setPlaying(false); seek(t); }} setClip={setClip}
-        onDropAsset={(id, track, start, lane) => assetMap[id] && addAsset(assetMap[id], track, start, lane)}
+        onDropAsset={(id, track, start, lane) => assetMap[id] && addAsset(assetMap[id], track, dropStart(track, lane, start), lane)}
         settleClip={(id, key, before0) => {
           // ao soltar: se cair sobre outro clipe, sobe para a próxima camada livre; depois remove camadas vazias
           const cs = live.current.clips, c = cs.find((x) => x.id === id);
@@ -1455,7 +1504,7 @@ function App() {
         tools={{ crumbs, exitTo, mainMagnet, setMainMagnet, ripple, setRipple, blade, setBlade, linkage, setLinkage, skim, setSkim: (v) => { setSkim(v); if (!v) skimRef.current = null; },
           onSkim: (t) => { skimRef.current = t; }, recording, onRecord: recordVoice }}
         trackState={trackState} toggleTrack={toggleTrack} zoom={zoom} setZoom={setZoom} snap={snap} setSnap={setSnap} markers={markers}
-        actions={{ split, trimSide, remove, duplicate, bladeAt, moveClips, settleGroup, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
+        actions={{ split, trimSide, remove, duplicate, extractAudio, copy: copyClip, cut: cutClip, bladeAt, moveClips, settleGroup, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
           removeMarker: (id) => setMarkers((m) => m.filter((x) => x.id !== id)),
           undo: hist.undo, redo: hist.redo, canUndo: hist.canUndo, canRedo: hist.canRedo }} />
       {curveOpen && selected && kfCount(selected) > 0 && (

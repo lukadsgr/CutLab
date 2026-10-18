@@ -3,7 +3,7 @@
    ===================================================================== */
 // largura do painel de camadas: estado `hw` dentro da Timeline (redimensionável)
 
-function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, label: labelColor, locked }) {
+function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, onMenu, label: labelColor, locked }) {
   const left = c.start * pps;
   const width = Math.max(4, c.duration * pps);
   let wave = null;
@@ -21,6 +21,7 @@ function ClipView({ c, asset, pps, selected, onDown, onKfDown, onOpen, label: la
   const times = kfTimes(c);
   return (
     <div data-id={c.id} className={`clip clip-${c.type} ${c.track === 'caption' ? 'clip-caption' : ''} ${selected ? 'sel' : ''} ${locked ? 'locked' : ''}`} style={{ left, width, "--label": labelColor }} onPointerDown={(e) => onDown(e, c, 'move')}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onMenu?.(e, c); }}
       onDoubleClick={c.type === 'compound' ? () => onOpen(c.id) : undefined} title={c.type === 'compound' ? 'Clique duplo para editar por dentro' : undefined}>
       {(c.type === 'video' || c.type === 'image') && asset?.thumb && <div className="clip-thumbs" style={{ backgroundImage: `url(${asset.thumb})` }} />}
       {c.type === 'color' && <div className="clip-swatch" style={{ background: c.props.color }} />}
@@ -56,6 +57,21 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   const vp = useViewport();
   const hw = Math.min(hwSaved, Math.max(HEAD_MIN, Math.round(vp.w * 0.3))); // em telas estreitas sobra espaço para os clipes
   const [labelMenu, setLabelMenu] = useState(null);
+  /** menu do botão direito num clipe: { id, x, y } */
+  const [clipMenu, setClipMenu] = useState(null);
+  const openClipMenu = (e, c) => {
+    if (!multi.includes(c.id)) onSelect(c.id);
+    setClipMenu({ id: c.id, x: e.clientX, y: e.clientY });
+  };
+  useEffect(() => {
+    if (!clipMenu) return;
+    const close = (e) => { if (!e.target.closest?.('.clip-menu')) setClipMenu(null); };
+    const esc = (e) => { if (e.key === 'Escape') setClipMenu(null); };
+    window.addEventListener('pointerdown', close, true);
+    window.addEventListener('keydown', esc);
+    window.addEventListener('resize', close);
+    return () => { window.removeEventListener('pointerdown', close, true); window.removeEventListener('keydown', esc); window.removeEventListener('resize', close); };
+  }, [clipMenu]);
   // o nome tem prioridade: TrkMat some primeiro, depois Pai e vínculo
   const free = hw - 168;
   const cols = { parent: free - 108 >= 96, matte: free - 108 - 70 >= 96 };
@@ -90,16 +106,26 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     window.addEventListener('pointerup', up);
   };
   const [extraRows, setExtraRows] = useState([]); // durante o arraste: camadas fixadas + linha "nova camada"
-  // arrastando algo da biblioteca/painéis: mostra todas as faixas para servir de destino
-  const [libDrag, setLibDrag] = useState(false);
+  // arrastando algo da biblioteca/painéis: mostra (vazias) só as faixas que aceitam aquele item
+  const [libDrag, setLibDrag] = useState(null);
+  const assetMapRef = useRef(assetMap);
+  assetMapRef.current = assetMap;
   useEffect(() => {
-    const on = () => setLibDrag(true), off = () => setLibDrag(false);
+    const on = (e) => {
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      let type = null;
+      if (dt.types.includes('text/asset')) type = assetMapRef.current[dt.getData('text/asset')]?.type;
+      else if (dt.types.includes('text/effect')) type = 'effect';
+      setLibDrag(type ? TRACKS.filter((t) => t.accepts.includes(type) && t.id !== 'text' && t.id !== 'caption').map((t) => t.id) : null);
+    };
+    const off = () => setLibDrag(null);
     window.addEventListener('dragstart', on);
     window.addEventListener('dragend', off);
     window.addEventListener('drop', off);
     return () => { window.removeEventListener('dragstart', on); window.removeEventListener('dragend', off); window.removeEventListener('drop', off); };
   }, []);
-  const rows = useMemo(() => timelineRows(clips, extraRows, libDrag || extraRows.length > 0), [clips, extraRows, libDrag]);
+  const rows = useMemo(() => timelineRows(clips, extraRows, libDrag), [clips, extraRows, libDrag]);
   // numeração de cima para baixo (#) e lista de camadas que podem ser pai
   const rowInfo = useMemo(() => {
     const m = new Map();
@@ -229,6 +255,8 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
       return best;
     };
     let moved = false;
+    // onde o mouse pegou o clipe, relativo ao topo da faixa dele
+    const homeTop = scrollRef.current.querySelector(`.tl-lane[data-track="${o.track}"][data-lane="${laneOf(o)}"]`)?.getBoundingClientRect().top ?? sy;
     // linhas existentes ficam fixas durante o arraste e aparece uma linha vazia acima para criar nova camada
     const ghostTrack = clip.track === 'main' ? 'overlay' : clip.track;
     const pinned = clips.map((c) => ({ track: c.track, lane: laneOf(c) }));
@@ -248,7 +276,11 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
         const s1 = snapTo(ns), e1 = snapTo(ns + o.duration);
         if (s1 !== ns) ns = s1; else if (e1 !== ns + o.duration) ns = e1 - o.duration;
         ns = Math.max(0, ns);
-        const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('[data-track]');
+        // alvo pelo deslocamento vertical desde o início, a partir de onde a faixa original está AGORA:
+        // a faixa-fantasma que aparece no arraste empurra as linhas e não pode trocar o clipe de faixa sozinha
+        const home = scrollRef.current.querySelector(`.tl-lane[data-track="${o.track}"][data-lane="${laneOf(o)}"]`)?.getBoundingClientRect();
+        const y = home ? home.top + (sy - homeTop) + (ev.clientY - sy) : ev.clientY;
+        const lane = document.elementFromPoint(ev.clientX, y)?.closest('[data-track]');
         let track = o.track, ln = laneOf(o);
         if (lane) {
           const tr = TRACKS.find((t) => t.id === lane.dataset.track);
@@ -449,7 +481,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
                     else onDropTransition(trn, at, rk);
                   }}>
                   {trackClips.map((c) => (
-                    <ClipView key={c.id} c={c} asset={assetMap[c.assetId]} pps={pps} selected={c.id === selectedId || multi.includes(c.id)} onDown={startDrag} onKfDown={startKfDrag} onOpen={actions.enterCompound} label={label} locked={st.lock} />
+                    <ClipView key={c.id} c={c} asset={assetMap[c.assetId]} pps={pps} selected={c.id === selectedId || multi.includes(c.id)} onDown={startDrag} onKfDown={startKfDrag} onOpen={actions.enterCompound} onMenu={openClipMenu} label={label} locked={st.lock} />
                   ))}
                   {pairs.filter((pr) => pr.row === rk).map(({ B, d }) => {
                     const w = Math.max(18, d * pps);
@@ -479,7 +511,37 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
           <div className={`tl-playhead ${phSnap ? 'snapped' : ''}`} style={{ left: hw + time * pps }}>
             <div className="ph-handle" onPointerDown={startScrub} />
           </div>
-          {labelMenu && <LabelMenu at={labelMenu.at} current={trackState[labelMenu.rk]?.label ?? DEFAULT_LABEL[rowTrack(labelMenu.rk)]}
+          {clipMenu && (() => {
+        const c = clips.find((x) => x.id === clipMenu.id);
+        if (!c) return null;
+        const act = (fn) => () => { setClipMenu(null); fn(); };
+        const video = c.type === 'video';
+        const items = [
+          video && { icon: 'music', label: 'Extrair áudio', hint: 'para a faixa Áudio', run: () => actions.extractAudio(c.id) },
+          video && { icon: 'freeze', label: 'Congelar quadro', kbd: 'F', run: actions.freeze },
+          { icon: 'scissors', label: 'Dividir no cursor', kbd: 'C', run: actions.split },
+          'sep',
+          { icon: 'copy', label: 'Copiar', kbd: 'Ctrl C', run: actions.copy },
+          { icon: 'scissors', label: 'Recortar', kbd: 'Ctrl X', run: actions.cut },
+          { icon: 'copy', label: 'Duplicar', kbd: 'Ctrl D', run: actions.duplicate },
+          actions.canCompound && { icon: 'layers', label: 'Criar clipe composto', kbd: 'Ctrl G', run: actions.compound },
+          isCompound(c) && { icon: 'ungroup', label: 'Desfazer composto', kbd: 'Ctrl ⇧ G', run: actions.ungroup },
+          'sep',
+          { icon: 'trash', label: 'Excluir', kbd: 'Del', danger: true, run: actions.remove },
+        ].filter(Boolean);
+        const h = items.length * 30;
+        return (
+          <div className="clip-menu" style={{ left: Math.min(clipMenu.x, window.innerWidth - 230), top: clipMenu.y + h > window.innerHeight - 8 ? Math.max(8, clipMenu.y - h) : clipMenu.y }}
+            onContextMenu={(e) => e.preventDefault()}>
+            {items.map((it, i) => it === 'sep' ? <div key={i} className="cm-sep" /> : (
+              <button key={i} className={it.danger ? 'danger' : ''} onClick={act(it.run)}>
+                <Icon name={it.icon} size={14} /><span>{it.label}{it.hint && <small> · {it.hint}</small>}</span>{it.kbd && <kbd>{it.kbd}</kbd>}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+      {labelMenu && <LabelMenu at={labelMenu.at} current={trackState[labelMenu.rk]?.label ?? DEFAULT_LABEL[rowTrack(labelMenu.rk)]}
             onPick={(i) => rowApi.setRow(labelMenu.rk, { label: i })} onClose={() => setLabelMenu(null)} />}
           {whip && (
             <svg className="whip-line"><line x1={whip.x0} y1={whip.y0} x2={whip.x} y2={whip.y} /><circle cx={whip.x} cy={whip.y} r="4" /></svg>

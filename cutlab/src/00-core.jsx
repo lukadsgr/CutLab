@@ -63,14 +63,14 @@ const compactLanes = (cs) => {
   for (const [t, set] of Object.entries(map)) idx[t] = new Map([...set].sort((a, b) => a - b).map((l, i) => [l, i]));
   return cs.map((c) => { const n = idx[c.track].get(laneOf(c)); return n === laneOf(c) ? c : { ...c, lane: n }; });
 };
-/** faixas que aparecem sempre; as outras só quando têm algum clipe (ou durante um arraste) */
+/** faixas que aparecem sempre; as outras só quando têm algum clipe (ou, em `show`, as que servem de destino de um arraste) */
 const ALWAYS_TRACKS = ['main', 'audio'];
 /** linhas da linha do tempo, de cima para baixo (camadas mais altas ficam acima, como no CapCut) */
-const timelineRows = (cs, extra = [], showAll = false) => {
+const timelineRows = (cs, extra = [], show = null) => {
   const rows = [];
   for (const tr of TRACKS) {
     if (tr.id === 'main') { rows.push({ tr, lane: 0 }); continue; }
-    if (!showAll && !ALWAYS_TRACKS.includes(tr.id) && !cs.some((c) => c.track === tr.id) && !extra.some((e) => e.track === tr.id)) continue;
+    if (!show?.includes(tr.id) && !ALWAYS_TRACKS.includes(tr.id) && !cs.some((c) => c.track === tr.id) && !extra.some((e) => e.track === tr.id)) continue;
     const set = new Set([0, ...cs.filter((c) => c.track === tr.id).map(laneOf), ...extra.filter((e) => e.track === tr.id).map((e) => e.lane)]);
     const lanes = [...set].sort((a, b) => b - a);
     for (const lane of lanes) rows.push({ tr, lane, ghost: extra.some((e) => e.ghost && e.track === tr.id && e.lane === lane) && !cs.some((c) => c.track === tr.id && laneOf(c) === lane) });
@@ -230,6 +230,7 @@ const ICONS = {
   scissors: { d: [circ(6, 6, 3), circ(6, 18, 3), 'M8.12 8.12 12 12', 'M20 4 8.12 15.88', 'M14.8 14.8 20 20'] },
   splitL: { d: ['M12 3v18', 'M8 7 4 12l4 5', 'M16 7v10'] },
   splitR: { d: ['M12 3v18', 'M16 7l4 5-4 5', 'M8 7v10'] },
+  check: { d: ['M20 6 9 17l-5-5'] },
   trash: { d: ['M3 6h18', 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'] },
   copy: { d: [rrect(8, 8, 14, 14, 2), 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'] },
   undo: { d: ['M9 14 4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11'] },
