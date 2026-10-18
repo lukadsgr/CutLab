@@ -188,6 +188,7 @@ class Engine {
     // elementos comandados neste quadro: qualquer outro é pausado no fim (ver abaixo)
     const driven = this._driven || (this._driven = new Set());
     driven.clear();
+    let stalled = false;
     for (const c of clips) {
       if (!isMedia(c)) continue;
       // id repetido: um elemento só pode seguir um clipe (dois comandos brigariam a cada quadro)
@@ -211,8 +212,11 @@ class Engine {
         const vol = propAt(c, 'volume', clamp(t - c.start, 0, c.duration));
         this.setVolume(c.id, el, muted ? 0 : (vol / 100) * audioFade(c, t) * (c._gain ?? 1));
         if (state.play) {
+          // em cena e sem quadros para mostrar (buscando/carregando): o relógio da reprodução espera
+          if (state.active && (el.seeking || el.readyState < 3)) stalled = true;
           if (el.paused) {
-            this.seek(c.id, el, state.src);
+            // já parado no ponto certo (pausa → play): buscar de novo só atrasaria o início
+            if (el.readyState < 2 || Math.abs(el.currentTime - state.src) > 0.02) { this.seek(c.id, el, state.src); stalled = state.active || stalled; }
             el.playbackRate = rate;
             el.play().catch(() => {});
           } else if (!el.seeking) {
@@ -246,6 +250,7 @@ class Engine {
     // nenhum elemento toca sem comando: clipes de outro nível (composto aberto), mídia
     // recarregando ou clipes que acabaram de sair da linha do tempo ficariam tocando sozinhos,
     // somando-se ao som atual (áudio "duplicado")
+    this.stalled = stalled;
     for (const [id, el] of this.media) {
       if (driven.has(id) || el.paused) continue;
       el.pause();

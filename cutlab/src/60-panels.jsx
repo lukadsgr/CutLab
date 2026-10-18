@@ -65,7 +65,27 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
    ===================================================================== */
 const ZOOMS = [0.5, 1, 1.5, 2, 3, 4, 6, 8];
 const RULER = 20; // espessura das réguas, em px
-function Player({ W, H, ratio, setRatio, canvasRef, overlayRef, time, duration, playing, onToggle, onSeek, onPreviewDown, onPreviewMove, onPreviewLeave, tool, empty, rulers, setRulers, guides, setGuides, onPreviewDbl, textEdit }) {
+/** qualidade da prévia (como no CapCut): o reprodutor desenha num quadro menor que o do projeto.
+ *  `short` = lado menor máximo em px; a exportação usa sempre a resolução do projeto */
+const PREVIEW_Q = {
+  perf: { label: 'Desempenho', short: 360, tip: 'prévia em 360p, reprodução mais leve' },
+  auto: { label: 'Equilibrada', short: 540, tip: 'prévia em até 540p (padrão)' },
+  full: { label: 'Completa', short: Infinity, tip: 'prévia na resolução do projeto, mais pesada' },
+};
+const PREVIEW_STEPS = [360, 540, 720, 1080, 1440, 2160];
+/** tamanho do canvas da prévia: limitado pela qualidade e pelo tamanho em que ele aparece na tela */
+function previewSize(W, H, quality, onScreenShort, full) {
+  const S = Math.min(W, H);
+  let s = S;
+  if (!full) {
+    // em degraus: redimensionar o painel não recria o canvas a cada pixel
+    const fit = PREVIEW_STEPS.find((x) => x >= onScreenShort) ?? S;
+    s = Math.min(S, (PREVIEW_Q[quality] || PREVIEW_Q.auto).short, fit);
+  }
+  const f = s / S;
+  return [Math.max(2, Math.round(W * f)), Math.max(2, Math.round(H * f))];
+}
+function Player({ W, H, ratio, setRatio, canvasRef, overlayRef, time, duration, playing, onToggle, onSeek, onPreviewDown, onPreviewMove, onPreviewLeave, tool, empty, rulers, setRulers, guides, setGuides, onPreviewDbl, textEdit, quality = 'auto', setQuality, fullRes }) {
   const stageRef = useRef();
   const wrapRef = useRef();
   const miniRef = useRef();
@@ -296,6 +316,7 @@ function Player({ W, H, ratio, setRatio, canvasRef, overlayRef, time, duration, 
     window.addEventListener('pointerup', up);
   };
   const pct = Math.round(view.z * 100);
+  const [PW, PH] = previewSize(W, H, quality, Math.min(box[0], box[1]) * view.z * (window.devicePixelRatio || 1), fullRes);
 
   return (
     <section className="player">
@@ -311,7 +332,7 @@ function Player({ W, H, ratio, setRatio, canvasRef, overlayRef, time, duration, 
         onPointerMove={(e) => { mouseScr.current = [e.clientX, e.clientY]; }} onPointerLeave={() => { mouseScr.current = null; }}>
         <div className={`canvas-wrap ${anim ? 'zoom-anim' : ''} ${view.z >= 3 ? 'pixelated' : ''}`} ref={wrapRef}
           style={{ width: box[0], height: box[1], transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
-          <canvas ref={canvasRef} width={W} height={H} />
+          <canvas ref={canvasRef} width={PW} height={PH} />
           <canvas ref={overlayRef} className={`overlay tool-${tool || 'none'}`} onPointerDown={(e) => { if (hand || e.button === 1) return; onPreviewDown(e); }} onPointerMove={onPreviewMove} onPointerLeave={onPreviewLeave} onDoubleClick={onPreviewDbl} />
           {textEdit && <TextEditor {...textEdit} W={W} H={H} />}
           {rulers && guides.v.map((f, i) => (
@@ -347,6 +368,9 @@ function Player({ W, H, ratio, setRatio, canvasRef, overlayRef, time, duration, 
         <div className="zoom-ctl">
           <button className={`icon-btn ${rulers ? 'on' : ''}`} title="Réguas e guias (Shift R) — arraste da régua para criar guias" onClick={() => setRulers(!rulers)}><Icon name="ruler" size={15} /></button>
           <button className={`icon-btn ${hand ? 'on' : ''}`} title="Mão: arrastar a vista (H) · o botão do meio do mouse também move" onClick={() => setHand(!hand)}><Icon name="hand" size={15} /></button>
+          <select className="zoom-sel" value={quality} onChange={(e) => setQuality?.(e.target.value)} title={`Qualidade da prévia: ${PREVIEW_Q[quality]?.tip || ''} · agora ${PW}×${PH} · a exportação não muda`}>
+            {Object.entries(PREVIEW_Q).map(([k, q]) => <option key={k} value={k}>{q.label}</option>)}
+          </select>
           <button className="icon-btn" title="Diminuir zoom (Ctrl −)" onClick={() => step(-1)}><Icon name="zoomOut" size={15} /></button>
           <select className="zoom-sel" value="" onChange={(e) => (e.target.value === 'fit' ? fitView() : zoomTo(parseFloat(e.target.value)))} title="Zoom — Ctrl + roda do mouse no reprodutor">
             <option value="" hidden>{pct}%</option>

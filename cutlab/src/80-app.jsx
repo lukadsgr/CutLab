@@ -77,6 +77,9 @@ function App() {
   const capLinkRef = useRef(capLink);
   capLinkRef.current = capLink;
   useEffect(() => { try { localStorage.setItem('cutlab-caplink', capLink ? '1' : '0'); } catch {} }, [capLink]);
+  // qualidade da prévia (o canvas do reprodutor é menor que o quadro do projeto; ver PREVIEW_Q)
+  const [previewQ, setPreviewQ] = useState(() => { try { return PREVIEW_Q[localStorage.getItem('cutlab-previewq')] ? localStorage.getItem('cutlab-previewq') : 'auto'; } catch { return 'auto'; } });
+  useEffect(() => { try { localStorage.setItem('cutlab-previewq', previewQ); } catch {} }, [previewQ]);
   const [exportState, setExportState] = useState(null);
   const [info, setInfo] = useState(null);
   const [dropHint, setDropHint] = useState(false);
@@ -99,7 +102,7 @@ function App() {
   const selected = clips.find((c) => c.id === selectedId) || null;
 
   const live = useRef({});
-  live.current = { ...live.current, clips, assetMap, playing, trackState, duration, selectedId, selectedTr, tool, brush, guides: rulers ? guides : null, mainMagnet, linkage, ripple, multi, blade, curveOpen };
+  live.current = { ...live.current, W, H, clips, assetMap, playing, trackState, duration, selectedId, selectedTr, tool, brush, guides: rulers ? guides : null, mainMagnet, linkage, ripple, multi, blade, curveOpen };
 
   const notify = useCallback((msg) => { setToast(msg); clearTimeout(notify.t); notify.t = setTimeout(() => setToast(null), 2600); }, []);
   const seek = useCallback((t) => { t = Math.max(0, t); timeRef.current = t; playClock.set(t); setTimeState(t); }, []);
@@ -137,14 +140,17 @@ function App() {
 
   /* loop principal: avança o tempo, sincroniza mídia e desenha */
   useEffect(() => {
-    let raf, last = performance.now(), lastUi = 0, uiT = 0;
+    let raf, last = performance.now(), lastUi = 0, uiT = 0, held = 0;
     const tick = () => {
       const now = performance.now();
-      const dt = Math.min(0.5, (now - last) / 1000);
+      let dt = Math.min(0.5, (now - last) / 1000);
       last = now;
       const s = live.current;
       if (offlineRef.current) return;   // exportação offline usa o motor sozinha
       if (s.playing) {
+        // vídeo em cena ainda buscando/carregando: o relógio espera por ele (até 1,5 s). Se seguisse
+        // sozinho, o vídeo ficaria para trás e teria de saltar para alcançar — o "pulo de quadros"
+        if (engine.stalled && held < 1.5) { held += dt; dt = 0; } else if (!engine.stalled) held = 0;
         let nt = timeRef.current + dt;
         const end = nt >= s.duration;
         if (end) {
@@ -154,9 +160,9 @@ function App() {
         }
         timeRef.current = nt;
         playClock.set(nt);
-        // o React (linha do tempo, painéis) recebe o tempo ~10×/s: redesenhar a interface
-        // inteira a cada quadro travava a reprodução em projetos com muitos clipes
-        if (end || now - lastUi > 100) { lastUi = now; uiT = nt; setTimeState(nt); }
+        // o React (painéis, valores do inspetor) recebe o tempo só ~4×/s: cada atualização redesenha
+        // a interface inteira e os picos derrubavam quadros. Cursor e timecode andam pelo playClock
+        if (end || now - lastUi > 250) { lastUi = now; uiT = nt; setTimeState(nt); }
       } else if (uiT !== timeRef.current) {
         // pausou (ou buscou): a interface fica com o tempo exato
         uiT = timeRef.current;
@@ -170,9 +176,11 @@ function App() {
         // prévia temporária (ex.: passar o mouse sobre um modo de mistura)
         const pv = previewRef.current;
         const clipsR = pv ? s.clips.map((c) => (c.id === pv.id ? { ...c, props: { ...c.props, ...pv.patch } } : c)) : s.clips;
-        boxesRef.current = engine.render(cv.getContext('2d'), cv.width, cv.height, t, clipsR, s.assetMap, s.trackState);
+        // a prévia é desenhada num canvas menor que o quadro; as caixas voltam para px do projeto (W×H),
+        // que é a unidade de toda a interação no reprodutor
+        boxesRef.current = toFrameBoxes(engine.render(cv.getContext('2d'), cv.width, cv.height, t, clipsR, s.assetMap, s.trackState), s.W / cv.width);
         const sel = recRef.current ? null : s.clips.find((c) => c.id === s.selectedId);
-        drawOverlay(overlayRef.current, cv, boxesRef.current, sel?.id, {
+        drawOverlay(overlayRef.current, { width: s.W, height: s.H }, boxesRef.current, sel?.id, {
           tool: s.tool, mouse: mouseRef.current, brush: s.brush,
           props: sel ? resolveProps(sel, clamp(t - sel.start, 0, sel.duration)) : null,
           pen: sel && s.tool === 'pen' ? penAt(sel, clamp(t - sel.start, 0, sel.duration)) : null,
@@ -837,7 +845,7 @@ function App() {
   const endTextEdit = () => { previewRef.current = null; setTextEdit(null); };
   const onPreviewDbl = (e) => {
     if (tool) return;
-    const cv = canvasRef.current, r = e.currentTarget.getBoundingClientRect(), k = cv.width / r.width;
+    const r = e.currentTarget.getBoundingClientRect(), k = W / r.width;
     const px = (e.clientX - r.left) * k, py = (e.clientY - r.top) * k;
     const hit = [...boxesRef.current].reverse().find((b) => {
       if (!b.w || live.current.trackState[b.row]?.lock) return false;
@@ -1292,7 +1300,8 @@ function App() {
 
     if (tool === 'pen') { penDown(e, clip, b, px, py, k, toCanvas, onDrag); return; }
     if (tool === 'colorpick') {
-      const d = canvasRef.current.getContext('2d').getImageData(clamp(Math.floor(px), 0, canvasRef.current.width - 1), clamp(Math.floor(py), 0, canvasRef.current.height - 1), 1, 1).data;
+      const cv = canvasRef.current, f = cv.width / W;   // o canvas da prévia é menor que o quadro
+      const d = cv.getContext('2d').getImageData(clamp(Math.floor(px * f), 0, cv.width - 1), clamp(Math.floor(py * f), 0, cv.height - 1), 1, 1).data;
       pickCb.current?.([d[0], d[1], d[2]]);
       setTool(null);
       return;
@@ -1378,7 +1387,7 @@ function App() {
 
   const onPreviewMove = (e) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const k = canvasRef.current.width / r.width;
+    const k = W / r.width;
     mouseRef.current = [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
     if (!tool && !snapRef.current) {
       const b = selectedId && boxesRef.current.find((x) => x.id === selectedId);
@@ -1392,13 +1401,12 @@ function App() {
   const onPreviewDown = (e) => {
     if (tool && selectedId) {
       const r0 = e.currentTarget.getBoundingClientRect();
-      const k0 = canvasRef.current.width / r0.width;
+      const k0 = W / r0.width;
       toolDown(e, (e.clientX - r0.left) * k0, (e.clientY - r0.top) * k0, k0);
       return;
     }
-    const cv = canvasRef.current;
     const r = e.currentTarget.getBoundingClientRect();
-    const k = cv.width / r.width;
+    const k = W / r.width;
     const px = (e.clientX - r.left) * k, py = (e.clientY - r.top) * k;
     const hits = boxesRef.current.filter((b) => !live.current.trackState[b.row]?.lock).filter((b) => {
       const dx = px - b.cx, dy = py - b.cy;
@@ -1406,7 +1414,6 @@ function App() {
       const ly = dx * Math.sin(-b.rot) + dy * Math.cos(-b.rot);
       return Math.abs(lx) <= b.w / 2 && Math.abs(ly) <= b.h / 2;
     });
-    const W = cv.width, H = cv.height;
     const selBox = selectedId && boxesRef.current.find((b) => b.id === selectedId && !live.current.trackState[b.row]?.lock);
     const handle = selBox ? hitHandle(selBox, px, py, k) : null;
     // clique seleciona o item de cima; Alt+clique desce para o item logo abaixo do selecionado (alcança o que está coberto)
@@ -1702,6 +1709,7 @@ function App() {
           onApplyTemplate={applyTemplate} captions={captions} trApi={libTrApi} />
         <div className="col-resizer" onPointerDown={startCol('left')} onDoubleClick={() => setLeftW(470)} title="Arraste para redimensionar · clique duplo restaura" />
         <Player W={W} H={H} ratio={ratio} setRatio={setRatio} canvasRef={canvasRef} overlayRef={overlayRef}
+          quality={previewQ} setQuality={setPreviewQ} fullRes={exportState?.stage === 'rendering' && !exportState.offline /* exportação em tempo real grava este canvas */}
           time={time} duration={duration} playing={playing} onToggle={togglePlay} onSeek={seek} onPreviewDown={onPreviewDown} onPreviewMove={onPreviewMove} onPreviewLeave={() => { mouseRef.current = null; hoverRef.current = null; }} tool={tool} empty={clips.length === 0}
           rulers={rulers} setRulers={setRulers} guides={guides} setGuides={setGuides} onPreviewDbl={onPreviewDbl}
           textEdit={textEdit && clips.find((c) => c.id === textEdit) ? {
@@ -1812,6 +1820,18 @@ function applyLinkage(before, after, movedId) {
   });
 }
 
+/** caixas do motor (em px do canvas da prévia) → px do quadro do projeto */
+function toFrameBoxes(boxes, f) {
+  if (Math.abs(f - 1) < 1e-6) return boxes;
+  return boxes.map((b) => {
+    if (!b) return b;
+    const o = { ...b, cx: b.cx * f, cy: b.cy * f, w: b.w * f, h: b.h * f };
+    // matriz do pai: só a translação depende da escala (S·M·S⁻¹)
+    if (b.pm) o.pm = new DOMMatrix([b.pm.a, b.pm.b, b.pm.c, b.pm.d, b.pm.e * f, b.pm.f * f]);
+    return o;
+  });
+}
+/** `cv`: tamanho do quadro do projeto ({ width, height }), unidade das caixas e do mouse */
 function drawOverlay(ov, cv, boxes, selectedId, extra = {}) {
   if (!ov) return;
   const r = ov.getBoundingClientRect();
