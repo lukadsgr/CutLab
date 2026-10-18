@@ -601,7 +601,7 @@ function Inspector({ clip, asset, local, setProps, setClip, kfApi, transition, t
               {FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
             </select>
           </div>
-          {S('Tamanho', 'fontSize', 10, 300)}
+          {S('Tamanho', 'fontSize', 10, 600)}
           <div className="row-between">
             <label className="kbd">Cor</label>
             <div className="row">
@@ -867,11 +867,11 @@ function TransitionPanel({ pair, onType, onDuration, onRemove, onAll }) {
 }
 
 const SHORTCUTS = [
-  ['Reproduzir / pausar', 'Espaço'], ['Dividir no cursor', 'Ctrl + B'], ['Excluir à esquerda / direita', 'Q / W'],
+  ['Reproduzir / pausar', 'Espaço'], ['Dividir no cursor', 'C / Ctrl + B'], ['Excluir à esquerda / direita', 'Q / W'],
   ['Excluir clipe', 'Delete'], ['Duplicar clipe', 'Ctrl + D'], ['Desfazer / refazer', 'Ctrl + Z / Y'],
   ['Keyframe no clipe selecionado', 'K'], ['Marcador', 'M'], ['Quadro anterior / próximo', '← / →'],
   ['Pular 1 segundo', 'Shift + ← / →'], ['Importar mídia', 'Ctrl + I'], ['Exportar', 'Ctrl + E'], ['Salvar projeto', 'Ctrl + S'], ['Abrir projeto', 'Ctrl + O'],
-  ['Lâmina: cortar com o mouse', 'C (Shift+clique corta tudo)'], ['Voltar à seleção', 'V / Esc'], ['Copiar / recortar / colar clipe', 'Ctrl + C / X / V'], ['Congelar quadro', 'F'],
+  ['Lâmina: cortar com o mouse', 'B (Shift+clique corta tudo)'], ['Voltar à seleção', 'V / Esc'], ['Copiar / recortar / colar clipe', 'Ctrl + C / X / V'], ['Congelar quadro', 'F'],
   ['Editor de curvas dos keyframes', 'G'], ['Selecionar com caixa', 'Arrastar no vazio da faixa (Ctrl soma)'],
   ['Selecionar vários clipes', 'Ctrl + clique'], ['Criar / desfazer clipe composto', 'Ctrl + G / Ctrl + Shift + G'], ['Editar clipe composto', 'Clique duplo · Esc volta'], ['Criar ou remover marcador no cursor', 'M · botão direito no marcador remove'], ['Zoom na linha do tempo', 'Ctrl + roda'],
 ];

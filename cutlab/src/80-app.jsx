@@ -234,7 +234,7 @@ function App() {
     const { y, ...style } = pr.style;
     addClip(makeClip('text', { name: pr.name, props: { ...style, text: pr.sample, ...(y != null ? { y } : {}) } }));
   };
-  const addSticker = (e) => addClip(makeClip('text', { name: 'Sticker', props: { text: e, fontSize: 150, shadow: false, bold: false, animIn: 'pop' } }));
+  const addSticker = (e) => addClip(makeClip('text', { name: 'Sticker', props: { text: e, fontSize: 280, shadow: false, bold: false, animIn: 'pop' } }));
   const addColor = (color) => addClip(makeClip('color', { name: 'Fundo', duration: 5, props: { color } }));
   const applyFilter = (f) => { if (selected) setProps(selected.id, { ...ADJ_RESET, ...f.v, filter: f.id }); };
   const addEffect = (id, start) => addClip(makeClip('effect', { name: EFFECT_MAP[id].name, duration: 3, props: { effect: id } }), start);
@@ -332,13 +332,17 @@ function App() {
       props: { ...target.props, fadeIn: 0, animIn: 'none', penKfs: (target.props.penKfs || []).map((f) => ({ ...f, t: f.t - s })).filter((f) => f.t >= -KF_EPS) } };
     return [left, right];
   };
+  /** divide no cursor: o clipe selecionado ou, sem seleção, todos os clipes sob o cursor (de qualquer faixa) */
   const split = useCallback(() => {
-    const t = timeRef.current;
-    const target = targetAt(t);
-    if (!target) { notify('Posicione o cursor sobre um clipe para dividir'); return; }
-    const [left, right] = splitParts(target, t);
-    hist.set((all) => all.flatMap((c) => (c.id === target.id ? [left, right] : [c])));
-    select(right.id);
+    const t = roundFrame(timeRef.current);
+    const { clips: cs, trackState: ts, selectedId: sel } = live.current;
+    const inside = (c) => t > c.start + 0.05 && t < c.start + c.duration - 0.05 && !ts[clipRow(c)]?.lock;
+    const picked = cs.find((c) => c.id === sel && inside(c));
+    const targets = picked ? [picked] : cs.filter(inside);
+    if (!targets.length) { notify('Posicione o cursor sobre um clipe para dividir'); return; }
+    const parts = new Map(targets.map((c) => [c.id, splitParts(c, t)]));
+    hist.set((all) => all.flatMap((c) => parts.get(c.id) || [c]));
+    select(picked ? parts.get(picked.id)[1].id : null);
   }, [hist.set, notify, select]);
   /** lâmina: corta no tempo `t` o clipe clicado (ou, com `all`, todas as camadas desbloqueadas) */
   const bladeAt = useCallback((id, t, all) => {
@@ -1323,7 +1327,8 @@ function App() {
       else if (mod && key === 'v') { e.preventDefault(); pasteClip(); }
       else if (mod && key === 'g') { e.preventDefault(); e.shiftKey ? ungroupCompound() : createCompound(); }
       else if (mod) return;
-      else if (key === 'c') setBlade((b) => !b);
+      else if (key === 'c') split();
+      else if (key === 'b') setBlade((b) => !b);
       else if (key === 'v') setBlade(false);
       else if (key === 'f') freezeFrame();
       else if (key === 'g') setCurveOpen((v) => !v);

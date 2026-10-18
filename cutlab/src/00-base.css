@@ -80,7 +80,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .list-item .li-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .list-item .li-sub { color: var(--muted); font-size: 11px; }
 .list-item .mini-wave { height: 18px; width: 100%; color: #4be0a0; opacity: .7; }
-.emoji-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 6px; }
 .emoji { font-size: 26px; aspect-ratio: 1; display: grid; place-items: center; border-radius: 8px; background: var(--panel-2); border: 1px solid transparent; cursor: pointer; }
 .emoji:hover { border-color: var(--accent); }
 .hint { color: var(--muted); font-size: 12px; line-height: 1.5; background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }

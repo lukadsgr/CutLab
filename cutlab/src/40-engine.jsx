@@ -2,6 +2,8 @@
    Motor de renderização / reprodução
    ===================================================================== */
 const ANIM_T = 0.5;
+/** texto feito só de emojis (stickers) */
+const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Modifier}‍️\s]+$/u;
 const easeBack = (p) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
 
 function fadeFactor(c, t) {
@@ -279,6 +281,8 @@ class Engine {
     ctx.font = `${p.italic ? 'italic ' : ''}${p.bold ? 700 : 400} ${size}px "${p.fontFamily}", sans-serif`;
     const lines = (p.text || ' ').split('\n');
     const maxW = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+    // sticker (só emoji, sem fundo): caixa justa no desenho, senão a área de clique cobre quase o quadro todo
+    if (!p.bg && EMOJI_ONLY.test(p.text || '')) return [maxW * 0.86, size * 1.12 * lines.length];
     return [maxW + size * 0.8, size * 1.22 * lines.length + size * 0.44];
   }
   /** desenha a linha do tempo interna do composto num canvas próprio (transparente onde não há nada) */
@@ -636,6 +640,8 @@ class Engine {
         ctx.restore();
       }
     });
+    // sticker: caixa de seleção justa no emoji (mesma regra de measureText)
+    if (!p.bg && EMOJI_ONLY.test(p.text || '')) return [maxW * 0.86, size * 1.12 * lines.length];
     return [bw, bh];
   }
 }

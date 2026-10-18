@@ -354,8 +354,8 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
         <button className="icon-btn" title="Desfazer (Ctrl+Z)" disabled={!actions.canUndo} onClick={actions.undo}><Icon name="undo" size={16} /></button>
         <button className="icon-btn" title="Refazer (Ctrl+Y)" disabled={!actions.canRedo} onClick={actions.redo}><Icon name="redo" size={16} /></button>
         <div className="tl-sep" />
-        <button className={`icon-btn ${tools.blade ? 'on' : ''}`} title="Lâmina (C): clique num clipe para cortar onde está o mouse · Shift+clique corta todas as camadas · V ou Esc volta à seleção" onClick={() => tools.setBlade(!tools.blade)}><Icon name="blade" size={16} /></button>
-        <button className="icon-btn" title="Dividir no cursor (Ctrl+B)" onClick={actions.split}><Icon name="scissors" size={16} /></button>
+        <button className={`icon-btn ${tools.blade ? 'on' : ''}`} title="Lâmina (B): clique num clipe para cortar onde está o mouse · Shift+clique corta todas as camadas · V ou Esc volta à seleção" onClick={() => tools.setBlade(!tools.blade)}><Icon name="blade" size={16} /></button>
+        <button className="icon-btn" title="Dividir no cursor (C ou Ctrl+B) · sem seleção corta todas as faixas" onClick={actions.split}><Icon name="scissors" size={16} /></button>
         <button className="icon-btn" title="Excluir à esquerda (Q)" onClick={() => actions.trimSide('left')}><Icon name="splitL" size={16} /></button>
         <button className="icon-btn" title="Excluir à direita (W)" onClick={() => actions.trimSide('right')}><Icon name="splitR" size={16} /></button>
         <button className="icon-btn" title="Excluir (Delete)" disabled={!selectedId && !selectedTr} onClick={actions.remove}><Icon name="trash" size={16} /></button>

@@ -467,16 +467,19 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.35); box-sha
 
 /* barra do reprodutor responsiva ao tamanho do painel */
 .player { container-type: inline-size; }
-.player-bar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; }
+.player-bar { grid-template-columns: minmax(0, 1fr) auto minmax(min-content, 1fr); gap: 10px; }
+/* os controles da direita nunca invadem o transporte: o tempo à esquerda é que encolhe */
+.zoom-ctl { justify-self: end; }
 .player-bar > div:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .zoom-ctl { gap: 0; min-width: 0; }
 @container (max-width: 620px) {
   .player-bar .tc:not(.cur) { display: none; }
+  .zoom-ctl .icon-btn[title^="Mão"] { display: none; }
   .zoom-ctl .icon-btn { width: 26px; }
   .zoom-sel { min-width: 50px; padding: 4px 4px; }
 }
 @container (max-width: 470px) {
-  .zoom-ctl .icon-btn[title^="Tela cheia"], .zoom-ctl .icon-btn[title^="Mão"] { display: none; }
+  .zoom-ctl .icon-btn[title^="Tela cheia"], .zoom-ctl .icon-btn[title^="Réguas"] { display: none; }
 }
 
 /* ---------- camadas empilhadas ---------- */
