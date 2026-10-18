@@ -240,6 +240,12 @@ class Engine {
   dropMedia(id) {
     const el = this.media.get(id);
     if (!el) return;
+    // as buscas que ele fez continuam no relatório do diagnóstico
+    if (el._seeks) {
+      const b = (this.seekLog ||= {})[el._name || '?'] ||= { total: 0, elementos: 0, motivos: {} };
+      b.total += el._seeks; b.elementos++;
+      for (const [k, n] of Object.entries(el._why || {})) b.motivos[k] = (b.motivos[k] || 0) + n;
+    }
     el.pause();
     el.removeAttribute('src');
     el.load();
@@ -281,9 +287,13 @@ class Engine {
       if (driven.has(c.id)) continue;
       const a = assetMap[c.assetId];
       if (!a || a.loading) continue;
-      // o elemento só nasce perto do clipe: cada <video> carrega e decodifica o arquivo, e um arquivo
-      // pesado cortado em vários pedaços virava vários decodificadores disputando a placa de vídeo
-      if (!this.media.has(c.id) && !(t >= c.start - 3 && t < c.start + c.duration + 0.5)) continue;
+      // o elemento só nasce perto do clipe (3 s antes): cada <video> carrega e decodifica o arquivo, e um
+      // arquivo pesado cortado em vários pedaços virava vários decodificadores disputando a placa de vídeo.
+      // E é liberado quando a agulha se afasta (5 s antes / 3 s depois — a folga evita recriar ao
+      // arrastar a agulha por perto): projetos com muitos cortes acumulavam dezenas de players
+      const end0 = c.start + c.duration;
+      if (t < c.start - 5 || t > end0 + 3) { if (this.media.has(c.id)) this.dropMedia(c.id); continue; }
+      if (!this.media.has(c.id) && !(t >= c.start - 3 && t < end0 + 0.5)) continue;
       const el = this.getMedia(c, a);
       el._name = c.name || a.name || c.type;
       driven.add(c.id);

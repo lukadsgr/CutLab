@@ -1916,6 +1916,8 @@ const perfDiag = {
   reset() {
     Object.assign(this, { n: 0, slow: 0, worst: 0, sum: 0, last: 0, lastT: 0, prev: null, hitches: [], recent: [] });
     for (const el of engine.media.values()) { el._seeks = 0; el._why = {}; }
+    engine.seekLog = {};
+    this.peak = engine.media.size;
   },
   frame(now, t, playing, syncMs, drawMs, clips) {
     if (!playing) { this.last = 0; return; }
@@ -1938,18 +1940,19 @@ const perfDiag = {
       }
     }
     this.last = now; this.lastT = t; this.prev = syncMs + drawMs;
+    this.peak = Math.max(this.peak || 0, engine.media.size);
   },
   report() {
     const c = canvasPreviewSize();
     // buscas por mídia desde que o diagnóstico abriu: durante o play deveriam ser quase zero
-    const buscas = {};
+    const buscas = JSON.parse(JSON.stringify(engine.seekLog || {}));   // dos players já liberados
     for (const el of engine.media.values()) {
       if (!el._seeks) continue;
       const b = buscas[el._name || '?'] ||= { total: 0, elementos: 0, motivos: {} };
       b.total += el._seeks; b.elementos++;
       for (const [k, n] of Object.entries(el._why || {})) b.motivos[k] = (b.motivos[k] || 0) + n;
     }
-    return JSON.stringify({ quadros: this.n, lentos: this.slow, elementos: engine.media.size, buscas, medioMs: this.n ? +(this.sum / this.n).toFixed(1) : 0, piorMs: Math.round(this.worst), previa: c, dpr: window.devicePixelRatio, ua: navigator.userAgent, engasgos: this.hitches }, null, 1);
+    return JSON.stringify({ quadros: this.n, lentos: this.slow, elementos: engine.media.size, picoElementos: this.peak, buscas, medioMs: this.n ? +(this.sum / this.n).toFixed(1) : 0, piorMs: Math.round(this.worst), previa: c, dpr: window.devicePixelRatio, ua: navigator.userAgent, engasgos: this.hitches }, null, 1);
   },
 };
 perfDiag.reset();
@@ -1970,7 +1973,7 @@ function PerfHud({ onClose }) {
         <span><em>{fps}</em> qps</span>
         <span><em>{d.slow}</em> engasgos</span>
         <span><em>{Math.round(d.worst)}</em> ms pior</span>
-        <span title="Buscas nas mídias desde que o diagnóstico abriu (no play deveriam ser quase zero)"><em>{[...engine.media.values()].reduce((n, el) => n + (el._seeks || 0), 0)}</em> buscas</span>
+        <span title="Buscas nas mídias desde que o diagnóstico abriu (no play deveriam ser quase zero)"><em>{[...engine.media.values()].reduce((n, el) => n + (el._seeks || 0), 0) + Object.values(engine.seekLog || {}).reduce((n, b) => n + b.total, 0)}</em> buscas</span>
         <span><em>{canvasPreviewSize()}</em></span>
       </div>
       <div className="perf-list">
