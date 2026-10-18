@@ -140,6 +140,20 @@ function speechRegions(pcm, sr) {
 }
 
 /**
+ * uma legenda por palavra: cada uma fica na tela até a próxima começar
+ * (pausas curtas não piscam), com no mínimo ~0,2 s para dar tempo de ler.
+ */
+function wordsToSingleCaptions(words, { gap = 0.5, minDur = 0.2 } = {}) {
+  return words.map((w, i) => {
+    const next = words[i + 1]?.s ?? Infinity;
+    let end = Math.max(w.e, w.s + minDur);
+    if (next - end < gap) end = next;            // emenda na próxima se a pausa for curta
+    else end = Math.min(end + 0.15, next);
+    return { start: w.s, end: Math.max(end, w.s + 0.05), text: w.w };
+  });
+}
+
+/**
  * agrupa palavras em legendas: quebra em pausas, pontuação final, limite de caracteres e de duração.
  * Cada legenda guarda as palavras com tempo relativo ao início dela (para o destaque).
  */

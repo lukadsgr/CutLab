@@ -485,6 +485,7 @@ function AutoCaptions({ onAuto, hasCaptions, time, selMedia }) {
   const [lang, setLang] = useState('portuguese');
   const [model, setModel] = useState('rapido');
   const [lines, setLines] = useState(1);
+  const [perWord, setPerWord] = useState(false);
   const [karaoke, setKaraoke] = useState(true);
   const [hlMode, setHlMode] = useState('box');
   const [hlColor, setHlColor] = useState('#ffd23f');
@@ -492,7 +493,7 @@ function AutoCaptions({ onAuto, hasCaptions, time, selMedia }) {
   const [job, setJob] = useState(null);   // { stage, p } enquanto roda
   const run = async () => {
     setJob({ stage: 'Começando…', p: 0 });
-    try { await onAuto({ scope, lang, model, lines, karaoke, hlMode, hlColor, replace }, (stage, p) => setJob({ stage, p })); }
+    try { await onAuto({ scope, lang, model, lines, perWord, karaoke, hlMode, hlColor, replace }, (stage, p) => setJob({ stage, p })); }
     finally { setJob(null); }
   };
   return (<>
@@ -530,13 +531,23 @@ function AutoCaptions({ onAuto, hasCaptions, time, selMedia }) {
       </div>
     </div>
     <div className="field">
-      <div className="field-top"><label>Linhas por legenda</label></div>
+      <div className="field-top"><label>Dividir em</label></div>
       <div className="seg">
-        {[1, 2].map((n) => <button key={n} className={lines === n ? 'on' : ''} disabled={!!job} onClick={() => setLines(n)}>{n}</button>)}
+        <button className={!perWord ? 'on' : ''} disabled={!!job} onClick={() => setPerWord(false)}>Frases</button>
+        <button className={perWord ? 'on' : ''} disabled={!!job} onClick={() => setPerWord(true)} title="Cada palavra vira uma legenda separada">Palavra por palavra</button>
       </div>
+      {perWord && <div className="hint" style={{ marginTop: 6 }}>Cada palavra vira uma legenda própria: dá para mudar cor, tamanho e animação de cada uma.</div>}
     </div>
-    <label className="check-row"><input type="checkbox" checked={karaoke} disabled={!!job} onChange={(e) => setKaraoke(e.target.checked)} /> Destacar a palavra falada</label>
-    {karaoke && (
+    {!perWord && (
+      <div className="field">
+        <div className="field-top"><label>Linhas por legenda</label></div>
+        <div className="seg">
+          {[1, 2].map((n) => <button key={n} className={lines === n ? 'on' : ''} disabled={!!job} onClick={() => setLines(n)}>{n}</button>)}
+        </div>
+      </div>
+    )}
+    {!perWord && <label className="check-row"><input type="checkbox" checked={karaoke} disabled={!!job} onChange={(e) => setKaraoke(e.target.checked)} /> Destacar a palavra falada</label>}
+    {!perWord && karaoke && (
       <div className="row" style={{ gap: 8, margin: '6px 0 4px' }}>
         <div className="seg" style={{ flex: 1 }}>
           <button className={hlMode === 'box' ? 'on' : ''} onClick={() => setHlMode('box')}>Caixa</button>

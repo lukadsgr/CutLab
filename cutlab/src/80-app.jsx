@@ -72,6 +72,11 @@ function App() {
   useEffect(() => { try { localStorage.setItem('cutlab-rulers', rulers ? '1' : '0'); } catch {} }, [rulers]);
   const [markers, setMarkers] = useState([]);
   const [capStyle, setCapStyle] = useState(CAPTION_STYLES[0]);
+  // vincular legendas: mover/redimensionar uma legenda aplica o mesmo a todas
+  const [capLink, setCapLink] = useState(() => { try { return localStorage.getItem('cutlab-caplink') === '1'; } catch { return false; } });
+  const capLinkRef = useRef(capLink);
+  capLinkRef.current = capLink;
+  useEffect(() => { try { localStorage.setItem('cutlab-caplink', capLink ? '1' : '0'); } catch {} }, [capLink]);
   const [exportState, setExportState] = useState(null);
   const [info, setInfo] = useState(null);
   const [dropHint, setDropHint] = useState(false);
@@ -180,7 +185,13 @@ function App() {
   const setClip = useCallback((id, patch, key) => hist.set((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)), key), [hist.set]);
   /** altera props respeitando keyframes (props animadas ganham keyframe no cursor) */
   const setProps = useCallback((id, patch, key) =>
-    hist.set((cs) => cs.map((c) => (c.id === id ? applyPatch(c, patch, localOf(c)) : c)), key), [hist.set]);
+    hist.set((cs) => {
+      const me = cs.find((c) => c.id === id);
+      // legendas vinculadas: posição e tamanho mudam juntos em todas as legendas
+      const shared = capLinkRef.current && me?.track === 'caption' ? pickCapLayout(patch) : null;
+      return cs.map((c) => (c.id === id ? applyPatch(c, patch, localOf(c))
+        : shared && c.track === 'caption' ? setCapLayout(c, shared) : c));
+    }, key), [hist.set]);
   const mapClip = (id, fn, key) => hist.set((cs) => cs.map((c) => (c.id === id ? fn(c) : c)), key);
 
   const makeClip = (type, { assetId = null, track = defaultTrack(type), duration = 3, name = '', props = {} }) =>
@@ -842,7 +853,34 @@ function App() {
 
   /* ---------- legendas ---------- */
   const captionList = useMemo(() => clips.filter((c) => c.track === 'caption').sort((a, b) => a.start - b.start), [clips]);
-  const makeCaption = (text, start, dur) => ({ ...makeClip('text', { track: 'caption', name: 'Legenda', duration: dur, props: { ...capStyle.style, text, y: 78 } }), start });
+  const makeCaption = (text, start, dur) => {
+    // vinculadas: a nova legenda nasce com a posição/tamanho das que já existem
+    const ref = capLinkRef.current && live.current.clips.find((c) => c.track === 'caption');
+    return { ...makeClip('text', { track: 'caption', name: 'Legenda', duration: dur, props: { ...capStyle.style, text, y: 78, ...(ref ? pickCapLayout(ref.props) : {}) } }), start };
+  };
+  const capApi = {
+    link: capLink, count: captionList.length,
+    setLink: (v) => { setCapLink(v); notify(v ? 'Legendas vinculadas: posição e tamanho mudam em todas' : 'Legendas desvinculadas'); },
+    /** copia a posição/tamanho desta legenda para todas as outras */
+    applyAll: (clip) => {
+      const lay = pickCapLayout(resolveProps(clip, localOf(clip)));
+      hist.set((cs) => cs.map((c) => (c.track === 'caption' && c.id !== clip.id ? setCapLayout(c, lay) : c)));
+      notify(`Posição e tamanho aplicados a ${captionList.length - 1} legenda(s)`);
+    },
+    /** separa uma legenda transcrita em uma legenda por palavra (mantendo o estilo dela) */
+    splitWords: (clip) => {
+      const ws = clip.props.words;
+      if (!ws?.length) return;
+      const parts = wordsToSingleCaptions(ws.map((w) => ({ w: w.w, s: clip.start + w.s, e: clip.start + w.e })));
+      const end = clip.start + clip.duration;
+      const { words, karaoke, ...style } = clip.props;
+      const made = parts.filter((g) => g.start < end).map((g) => ({ ...clip, id: uid(), keyframes: undefined, start: g.start,
+        duration: Math.max(0.05, Math.min(g.end, end) - g.start), props: { ...style, text: g.text } }));
+      hist.set((cs) => [...cs.filter((c) => c.id !== clip.id), ...made]);
+      select(made[0]?.id);
+      notify(`Legenda separada em ${made.length} palavra(s)`);
+    },
+  };
   /** clipes de vídeo/áudio selecionados (clique e Ctrl+clique) */
   const selMediaClips = (cs) => {
     const ids = new Set([...live.current.multi, live.current.selectedId].filter(Boolean));
@@ -902,10 +940,12 @@ function App() {
         const words = (await transcribeProject({ clips: src, assetMap: am, trackState: ts, from, to, lang: o.lang, model: o.model, onStage }))
           .filter((w) => w.s < to && w.e > from);
         if (!words.length) { notify('Nenhuma fala reconhecida'); return; }
-        const made = wordsToCaptions(words, { lines: o.lines }).map((g) => {
-          const c = makeCaption(g.text, g.start, g.end - g.start);
-          return o.karaoke ? { ...c, props: { ...c.props, words: g.words, karaoke: true, hlMode: o.hlMode, hlColor: o.hlColor } } : c;
-        });
+        const made = o.perWord
+          ? wordsToSingleCaptions(words).map((g) => makeCaption(g.text, g.start, g.end - g.start))
+          : wordsToCaptions(words, { lines: o.lines }).map((g) => {
+            const c = makeCaption(g.text, g.start, g.end - g.start);
+            return o.karaoke ? { ...c, props: { ...c.props, words: g.words, karaoke: true, hlMode: o.hlMode, hlColor: o.hlColor } } : c;
+          });
         // substitui só as legendas que tocam o trecho transcrito
         const inRange = (c) => c.track === 'caption' && c.start < to && c.start + c.duration > from;
         hist.set((xs) => [...(o.replace ? xs.filter((c) => !inRange(c)) : xs), ...made]);
@@ -1650,7 +1690,7 @@ function App() {
           local={selected ? clamp(time - selected.start, 0, selected.duration) : 0}
           setProps={setProps} setClip={setClip} kfApi={kfApi}
           transition={trPair ? { pair: trPair } : null} trApi={trApi}
-          colorApi={colorApi} penApi={penApi} tool={tool} setTool={setTool} brush={brush} setBrush={setBrush} onAutoBg={onAutoBg}
+          colorApi={colorApi} penApi={penApi} capApi={capApi} tool={tool} setTool={setTool} brush={brush} setBrush={setBrush} onAutoBg={onAutoBg}
           setPreview={(pv) => { previewRef.current = pv; }}
           aspect={selected ? clipAspect(selected, selectedAsset, W, H) : 16 / 9}
           project={{ name: projectName, ratio, setRatio, duration, clipCount: clips.length, assetCount: assets.length }} />

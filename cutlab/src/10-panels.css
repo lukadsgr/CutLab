@@ -104,3 +104,5 @@
 .save-state.saving { color: var(--muted); }
 .save-state.error { color: var(--danger); cursor: help; }
 .check-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text); margin: 8px 0 2px; cursor: pointer; }
+.cap-link { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 10px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
+.cap-link .check-row { margin: 0; }

@@ -499,7 +499,7 @@ const TAB_DEFS = {
   compound: [{ id: 'Composto', subs: ['Básico', 'Máscara'] }, { id: 'Áudio' }, { id: 'Animação' }, { id: 'Ajuste', subs: COLOR_SUBS }],
 };
 
-function Inspector({ clip, asset, local, setProps, setClip, kfApi, transition, trApi, project, tool, setTool, brush, setBrush, onAutoBg, setPreview, aspect, colorApi, penApi }) {
+function Inspector({ clip, asset, local, setProps, setClip, kfApi, transition, trApi, project, tool, setTool, brush, setBrush, onAutoBg, setPreview, aspect, colorApi, penApi, capApi }) {
   const defs = clip ? TAB_DEFS[clip.type] || [] : [];
   const [tabState, setTab] = useState(defs[0]?.id);
   const [subs, setSubs] = useState({});
@@ -584,6 +584,14 @@ function Inspector({ clip, asset, local, setProps, setClip, kfApi, transition, t
         </div>
       )}
       <div className="insp-body" key={tab}>
+        {clip.track === 'caption' && (tab === 'Texto' || tab === 'Básico') && capApi && (
+          <div className="cap-link">
+            <label className="check-row" title="Mover ou redimensionar uma legenda (aqui ou no reprodutor) muda todas as legendas">
+              <input type="checkbox" checked={capApi.link} onChange={(e) => capApi.setLink(e.target.checked)} /> Mesma posição e tamanho em todas as legendas
+            </label>
+            {capApi.count > 1 && <button className="link-btn" onClick={() => capApi.applyAll(clip)}>Aplicar a todas agora</button>}
+          </div>
+        )}
         {tab === 'Texto' && (<>
           <div className="field"><textarea className="textarea" value={p.text} onChange={(e) => setProps(clip.id, { text: e.target.value }, `p:${clip.id}:text`)} spellCheck={false} /></div>
           {p.words?.length > 0 && (
@@ -596,6 +604,9 @@ function Inspector({ clip, asset, local, setProps, setClip, kfApi, transition, t
                 <input type="color" className="color" value={p.hlColor || '#ffd23f'} onChange={(e) => setProps(clip.id, { hlColor: e.target.value }, `p:${clip.id}:hl`)} />
               </div>
               <div className="hint">O destaque segue o tempo de cada palavra da transcrição. Se você mudar a quantidade de palavras do texto, ele é desligado.</div>
+              {capApi && clip.track === 'caption' && p.words.length > 1 && (
+                <button className="btn ghost" style={{ marginTop: 8 }} onClick={() => capApi.splitWords(clip)}><Icon name="scissors" size={14} /> Separar em uma legenda por palavra</button>
+              )}
             </Section>
           )}
           <div className="field">

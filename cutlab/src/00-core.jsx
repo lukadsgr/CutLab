@@ -195,6 +195,19 @@ const CAPTION_STYLES = [
   { id: 'bold', name: 'Impacto', style: { fontFamily: 'Anton', fontSize: 52, bold: false, color: '#ffffff', bg: '', stroke: 5, strokeColor: '#000000', glow: '', shadow: true } },
   { id: 'hl', name: 'Marca-texto', style: { fontFamily: 'Inter', fontSize: 36, bold: true, color: '#111111', bg: '#1fd6cb', stroke: 0, glow: '', shadow: false } },
 ];
+/** posição e tamanho compartilhados pelas legendas vinculadas */
+const CAP_LAYOUT_KEYS = ['x', 'y', 'scale', 'scaleX', 'scaleY', 'rotation', 'fontSize'];
+const pickCapLayout = (o) => {
+  const out = {};
+  for (const k of CAP_LAYOUT_KEYS) if (typeof o[k] === 'number') out[k] = o[k];
+  return Object.keys(out).length ? out : null;
+};
+/** aplica o layout como valor fixo; propriedades animadas por keyframes na legenda ficam como estão */
+const setCapLayout = (c, lay) => {
+  let props = c.props;
+  for (const k in lay) if (!c.keyframes?.[k]?.length && props[k] !== lay[k]) { if (props === c.props) props = { ...props }; props[k] = lay[k]; }
+  return props === c.props ? c : { ...c, props };
+};
 const STICKER_CATS = {
   Rostos: ['😀','😂','🤣','😍','🥰','😎','🤩','🥳','🤯','😱','😭','😡','🤔','😴','🙄','😇','🤡','👻'],
   Gestos: ['👍','👎','👏','🙌','👌','✌️','🤞','🤘','👉','👈','👆','👇','💪','🙏','✋','👋','🫶','🤙'],
