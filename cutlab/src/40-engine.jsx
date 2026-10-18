@@ -330,10 +330,13 @@ class Engine {
             el.playbackRate = rate;
             this.startPlay(el);
           } else if (!el.seeking) {
-            // relógio mestre: a mídia em cena tocando (vídeo da Principal primeiro) dita o tempo da
-            // reprodução. Com o relógio do navegador separado, a diferença oscilava ~1 quadro e a
-            // velocidade era corrigida sem parar — cada correção é um soluço na imagem
-            const rank = !state.active || c.speedCurve || el.readyState < 3 ? 0 : (el.tagName === "VIDEO" ? 2 : 1) + (c.track === "main" ? 2 : 0);
+            // relógio mestre: a mídia em cena tocando dita o tempo da reprodução (com o relógio do navegador
+            // separado, a diferença oscilava ~1 quadro e a velocidade era corrigida sem parar). Áudio
+            // contínuo (música) primeiro: cada corte de vídeo entra alguns ms fora, e com o vídeo no
+            // comando a música ia acumulando a diferença até levar uma busca — um pulo audível. Vídeo
+            // 1–2 quadros fora não se vê. Só vale quem já está andando (o play() recém-pedido ainda não)
+            const rank = !state.active || c.speedCurve || el.readyState < 3 || el._pAt ? 0
+              : el.tagName === 'AUDIO' ? 4 + Math.min(1, c.duration / 600) : 2 + (c.track === 'main' ? 1 : 0);
             if (rank > mRank) { mRank = rank; master = { c, el }; }
             // erro positivo = vídeo atrasado em relação à linha do tempo
             const err = state.src - el.srcTime;
@@ -347,8 +350,10 @@ class Engine {
               // e, mantida, soa como eco/voz dobrada — então só corrige quando precisa
               if (el.playbackRate !== rate) el.playbackRate = rate;
             } else {
-              // fora do tom (30 ms ou mais): ajuste pequeno, no máximo 4% (inaudível), até alcançar
-              const target = clamp(rate * (1 + clamp(err * 0.5, fast ? -0.3 : -0.04, fast ? 0.3 : 0.04)), 0.0625, 16);
+              // fora do tom (30 ms ou mais): ajuste pequeno até alcançar — no máximo 4% no áudio (inaudível);
+              // vídeo, que segue a música, pode ir a 8% para alcançar depressa sem precisar de busca
+              const lim2 = fast ? 0.3 : el.tagName === 'VIDEO' ? 0.08 : 0.04;
+              const target = clamp(rate * (1 + clamp(err * 0.5, -lim2, lim2)), 0.0625, 16);
               if (Math.abs(el.playbackRate - target) > rate * 0.005) el.playbackRate = target;
             }
           }
@@ -385,7 +390,9 @@ class Engine {
       // latência do play(): do comando até o tempo da mídia começar a andar (média móvel)
       if (el._pAt && !el.paused && el.currentTime > el._pFrom + 1e-3) {
         const lat = (performance.now() - el._pAt) / 1000 - (el.currentTime - el._pFrom) / (el.playbackRate || 1);
-        this.playLat = clamp(this.playLat * 0.7 + clamp(lat, 0.02, 0.5) * 0.3, 0.04, 0.4);
+        // medições fora da curva (um momento pesado, aba em segundo plano) são descartadas: uma
+        // latência inflada fazia o próximo corte começar cedo demais e entrar adiantado
+        if (lat > 0 && lat < 0.3) this.playLat = clamp(this.playLat * 0.7 + Math.max(0.02, lat) * 0.3, 0.04, 0.25);
         el._pAt = 0;
       }
     }
