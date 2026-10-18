@@ -38,7 +38,7 @@ const TRACKS = [
   { id: 'effect', label: 'Efeitos', icon: 'sparkles', accepts: ['effect', 'adjust'], h: 32 },
   { id: 'caption', label: 'Legendas', icon: 'captions', accepts: ['text'], h: 32 },
   { id: 'text', label: 'Texto', icon: 'type', accepts: ['text'], h: 34 },
-  { id: 'overlay', label: 'Sobreposição', icon: 'layers', accepts: ['video', 'image', 'color', 'compound'], h: 50 },
+  { id: 'overlay', label: 'Sobreposição', icon: 'layers', accepts: ['video', 'image', 'color', 'compound', 'text'], h: 50 },
   { id: 'main', label: 'Principal', icon: 'film', accepts: ['video', 'image', 'color', 'compound'], h: 66 },
   { id: 'audio', label: 'Áudio', icon: 'music', accepts: ['audio'], h: 46 },
 ];
@@ -63,11 +63,14 @@ const compactLanes = (cs) => {
   for (const [t, set] of Object.entries(map)) idx[t] = new Map([...set].sort((a, b) => a - b).map((l, i) => [l, i]));
   return cs.map((c) => { const n = idx[c.track].get(laneOf(c)); return n === laneOf(c) ? c : { ...c, lane: n }; });
 };
+/** faixas que aparecem sempre; as outras só quando têm algum clipe (ou durante um arraste) */
+const ALWAYS_TRACKS = ['main', 'audio'];
 /** linhas da linha do tempo, de cima para baixo (camadas mais altas ficam acima, como no CapCut) */
-const timelineRows = (cs, extra = []) => {
+const timelineRows = (cs, extra = [], showAll = false) => {
   const rows = [];
   for (const tr of TRACKS) {
     if (tr.id === 'main') { rows.push({ tr, lane: 0 }); continue; }
+    if (!showAll && !ALWAYS_TRACKS.includes(tr.id) && !cs.some((c) => c.track === tr.id) && !extra.some((e) => e.track === tr.id)) continue;
     const set = new Set([0, ...cs.filter((c) => c.track === tr.id).map(laneOf), ...extra.filter((e) => e.track === tr.id).map((e) => e.lane)]);
     const lanes = [...set].sort((a, b) => b - a);
     for (const lane of lanes) rows.push({ tr, lane, ghost: extra.some((e) => e.ghost && e.track === tr.id && e.lane === lane) && !cs.some((c) => c.track === tr.id && laneOf(c) === lane) });

@@ -58,15 +58,81 @@ async function transcribeProject({ clips, assetMap, trackState, from = 0, to, la
   if (peak < 0.01) throw new Error('Não há áudio audível no trecho (verifique se as faixas não estão mudas)');
   onStage(`Baixando o modelo ${ASR_MODELS[model].name} (${ASR_MODELS[model].size}, só na primeira vez)…`, 0);
   const asr = await loadAsr(model, (f) => onStage(`Baixando o modelo ${ASR_MODELS[model].name}… ${Math.round(f * 100)}%`, f * 0.4));
-  onStage('Ouvindo e transcrevendo… (pode levar um pouco)', 0.45);
-  const r = await asr(pcm, { return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5, task: 'transcribe', ...(lang ? { language: lang } : {}) });
-  const words = (r.chunks || [])
-    .map((c) => ({ w: c.text.trim(), s: from + (c.timestamp[0] ?? 0), e: from + (c.timestamp[1] ?? c.timestamp[0] ?? 0) }))
-    .filter((x) => x.w);
+  // O Whisper "puxa" as palavras para o começo quando há silêncio antes da fala:
+  // transcrevemos só os trechos com voz, cada um com o seu deslocamento real.
+  const { voiced, regions } = speechRegions(pcm, 16000);
+  if (!regions.length) throw new Error('Não há fala audível no trecho');
+  const words = [];
+  for (let i = 0; i < regions.length; i++) {
+    const [a, b] = regions[i];
+    onStage(`Ouvindo e transcrevendo… ${regions.length > 1 ? `(trecho ${i + 1} de ${regions.length})` : '(pode levar um pouco)'}`, 0.45 + 0.5 * (i / regions.length));
+    const r = await asr(pcm.subarray(Math.floor(a * 16000), Math.ceil(b * 16000)),
+      { return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5, task: 'transcribe', ...(lang ? { language: lang } : {}) });
+    for (const c of r.chunks || []) {
+      const w = c.text.trim();
+      if (w) words.push({ w, s: a + (c.timestamp[0] ?? 0), e: a + (c.timestamp[1] ?? c.timestamp[0] ?? 0) });
+    }
+  }
   // palavras sem fim ou fim antes do início (acontece no fim de blocos): usa o início da próxima
   words.forEach((x, i) => { if (!(x.e > x.s)) x.e = words[i + 1]?.s ?? x.s + 0.3; });
+  // início que caiu no silêncio (ou no fim da palavra anterior): avança até o próximo
+  // começo de som dentro da palavra — um trecho com voz depois de ≥ 0,16 s de silêncio
+  const F = 0.02;
+  words.forEach((x, i) => {
+    // procura até o começo da palavra seguinte: às vezes o Whisper põe a palavra inteira dentro da pausa
+    const f0 = Math.floor(x.s / F), f1 = Math.min(voiced.length, Math.ceil(Math.max(x.e, words[i + 1]?.s ?? x.e) / F));
+    let quiet = 0, onset = -1, silent = 0;
+    for (let f = f0; f < f1; f++) {
+      if (!voiced[f]) { quiet++; silent++; continue; }
+      // silêncio longo, ou só silêncio desde o início da palavra (sem continuar o som da anterior)
+      // (estalos curtos, < 80 ms de som, não contam como começo)
+      let run = 0;
+      while (run < 4 && voiced[f + run]) run++;
+      if (run >= 4 && (quiet >= 8 || (quiet === f - f0 && (f > f0 || !voiced[f0 - 1])))) { onset = f; break; }
+      quiet = 0;
+    }
+    // só move se antes do novo início houver no máximo 0,25 s de som (o rabo da palavra anterior)
+    if (onset > f0 && onset - f0 - silent <= 12) {
+      x.s = onset * F;
+      if (x.e < x.s + 0.15) x.e = Math.min(x.s + 0.3, words[i + 1]?.s ?? Infinity);
+    }
+  });
+  for (const x of words) { x.s += from; x.e += from; }
   onStage('Pronto', 1);
   return words;
+}
+
+/**
+ * Trechos com voz, por energia em janelas de 20 ms: limiar relativo ao volume da fala,
+ * pausas de até 2 s não separam trechos, margem de 0,25 s e no máximo ~28 s cada.
+ * Devolve { voiced: bool por janela, regions: [[início, fim], …] em segundos }.
+ */
+function speechRegions(pcm, sr) {
+  const hop = Math.round(sr * 0.02), n = Math.floor(pcm.length / hop);
+  const rms = new Float32Array(n);
+  for (let f = 0; f < n; f++) {
+    let s = 0;
+    for (let i = f * hop; i < (f + 1) * hop; i++) s += pcm[i] * pcm[i];
+    rms[f] = Math.sqrt(s / hop);
+  }
+  const sorted = [...rms].sort((x, y) => x - y);
+  const loud = sorted[Math.floor(n * 0.95)] || 0, floor = sorted[Math.floor(n * 0.1)] || 0;
+  const thr = Math.max(0.004, floor * 2, loud * 0.08);
+  const voiced = Array.from(rms, (v) => v > thr);
+  const regions = [];
+  let start = -1, lastOn = -1;
+  const pad = 0.25, dur = pcm.length / sr;
+  const push = () => regions.push([Math.max(0, start * 0.02 - pad), Math.min(dur, (lastOn + 1) * 0.02 + pad)]);
+  for (let f = 0; f < n; f++) {
+    if (!voiced[f]) continue;
+    if (start < 0) start = f;
+    else if ((f - lastOn) * 0.02 > 2 || (f - start) * 0.02 > 28) { push(); start = f; }
+    lastOn = f;
+  }
+  if (start >= 0) push();
+  // margens não podem se sobrepor
+  for (let i = 1; i < regions.length; i++) if (regions[i][0] < regions[i - 1][1]) regions[i][0] = regions[i - 1][1] = (regions[i][0] + regions[i - 1][1]) / 2;
+  return { voiced, regions: regions.filter(([a, b]) => b - a > 0.3) };
 }
 
 /**

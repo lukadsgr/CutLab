@@ -130,11 +130,12 @@ function LeftPanel(props) {
     <div key={a.id} className="list-item" draggable={!a.loading} onDragStart={(e) => e.dataTransfer.setData('text/asset', a.id)} onDoubleClick={() => onAddAsset(a)}>
       <div className="li-icon"><Icon name="music" size={15} /></div>
       <div className="li-text">
-        <div className="li-name">{a.name}</div>
-        {a.peaks ? <MiniWave peaks={a.peaks} className="mini-wave" /> : <div className="li-sub">{a.loading ? 'Processando…' : a.error ? 'Formato não suportado' : ''}</div>}
+        <div className="li-name" title={a.name}>{a.name}</div>
+        {a.peaks ? <MiniWave peaks={a.peaks} className="mini-wave" /> : null}
+        <div className="li-sub">{a.loading ? 'Processando…' : a.error ? 'Formato não suportado' : a.duration ? fmtDur(a.duration) : ''}</div>
       </div>
-      <span className="kbd">{a.duration ? fmtDur(a.duration) : ''}</span>
       {!a.loading && !a.error && <button className="icon-btn" title="Adicionar" onClick={() => onAddAsset(a)}><Icon name="plus" size={15} /></button>}
+      <button className="icon-btn li-del" title="Excluir áudio" onClick={(e) => { e.stopPropagation(); onRemoveAsset(a.id); }}><Icon name="trash" size={14} /></button>
     </div>
   );
   const sfxRow = (s) => (

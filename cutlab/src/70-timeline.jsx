@@ -90,7 +90,16 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     window.addEventListener('pointerup', up);
   };
   const [extraRows, setExtraRows] = useState([]); // durante o arraste: camadas fixadas + linha "nova camada"
-  const rows = useMemo(() => timelineRows(clips, extraRows), [clips, extraRows]);
+  // arrastando algo da biblioteca/painéis: mostra todas as faixas para servir de destino
+  const [libDrag, setLibDrag] = useState(false);
+  useEffect(() => {
+    const on = () => setLibDrag(true), off = () => setLibDrag(false);
+    window.addEventListener('dragstart', on);
+    window.addEventListener('dragend', off);
+    window.addEventListener('drop', off);
+    return () => { window.removeEventListener('dragstart', on); window.removeEventListener('dragend', off); window.removeEventListener('drop', off); };
+  }, []);
+  const rows = useMemo(() => timelineRows(clips, extraRows, libDrag || extraRows.length > 0), [clips, extraRows, libDrag]);
   // numeração de cima para baixo (#) e lista de camadas que podem ser pai
   const rowInfo = useMemo(() => {
     const m = new Map();

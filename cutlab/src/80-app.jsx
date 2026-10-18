@@ -218,9 +218,17 @@ function App() {
     notify(n ? `${n} arquivo(s) importado(s)` : 'Formato não suportado');
   }, [notify]);
 
+  /** remove da biblioteca e da linha do tempo inteira (inclusive de dentro dos compostos) */
   const removeAsset = (id) => {
+    const asset = assets.find((x) => x.id === id);
+    const strip = (cs) => cs.filter((c) => c.assetId !== id).map((c) => (c.children ? { ...c, children: strip(c.children) } : c));
+    const count = (cs) => cs.reduce((n, c) => n + (c.assetId === id ? 1 : 0) + (c.children ? count(c.children) : 0), 0);
+    const used = count(rootRef.current);
+    if (used && !window.confirm(`“${asset?.name || 'Este item'}” está em ${used} clipe(s) da linha do tempo, que também serão removidos. Continuar?`)) return;
     setAssets((a) => a.filter((x) => x.id !== id));
-    hist.set((cs) => cs.filter((c) => c.assetId !== id));
+    if (used) rootHist.set(strip);
+    if (live.current.selectedId && !allClipIds(strip(rootRef.current)).has(live.current.selectedId)) select(null);
+    notify(`${asset?.type === 'audio' ? 'Áudio' : 'Item'} excluído`);
   };
 
   const addSfx = async (def) => {
@@ -234,7 +242,7 @@ function App() {
     const { y, ...style } = pr.style;
     addClip(makeClip('text', { name: pr.name, props: { ...style, text: pr.sample, ...(y != null ? { y } : {}) } }));
   };
-  const addSticker = (e) => addClip(makeClip('text', { name: 'Sticker', props: { text: e, fontSize: 280, shadow: false, bold: false, animIn: 'pop' } }));
+  const addSticker = (e) => addClip(makeClip('text', { name: 'Sticker', track: 'overlay', props: { text: e, fontSize: 280, shadow: false, bold: false, animIn: 'pop' } }));
   const addColor = (color) => addClip(makeClip('color', { name: 'Fundo', duration: 5, props: { color } }));
   const applyFilter = (f) => { if (selected) setProps(selected.id, { ...ADJ_RESET, ...f.v, filter: f.id }); };
   const addEffect = (id, start) => addClip(makeClip('effect', { name: EFFECT_MAP[id].name, duration: 3, props: { effect: id } }), start);

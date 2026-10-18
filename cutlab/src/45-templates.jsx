@@ -46,7 +46,7 @@ const TEMPLATES = [
       make('color', t0, 6, { color: '#e2557d' }),
       make('text', t0 + 0.2, 5.8, { text: 'NOVIDADE', fontFamily: 'Anton', fontSize: 120, bold: false, y: -55, animIn: 'pop' }),
       make('text', t0 + 0.8, 5.2, { text: 'arraste para cima', fontSize: 34, color: '#111', bg: '#ffe14d', shadow: false, y: 60, animIn: 'slideU' }),
-      make('text', t0 + 1.2, 4.8, { text: '🔥', fontSize: 200, shadow: false, bold: false, animIn: 'pop' }, { name: 'Sticker' }),
+      make('text', t0 + 1.2, 4.8, { text: '🔥', fontSize: 200, shadow: false, bold: false, animIn: 'pop' }, { name: 'Sticker', track: 'overlay' }),
       make('effect', t0, 6, { effect: 'confetti', intensity: 60 }),
     ] }) },
   { id: 'reels-hook', name: 'Gancho Reels', cat: 'Social', dur: 3, bg: 'linear-gradient(160deg,#111,#3b1c4a)', fg: '#ffe14d', label: 'ESPERA!', ratio: '9:16',
