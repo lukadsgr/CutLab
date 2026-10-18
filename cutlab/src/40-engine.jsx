@@ -466,7 +466,11 @@ class Engine {
     const w = fs.outW, h = fs.outH;
     let img = pr.A;
     if (blurSpan > 0) {
-      img = this.motionBlur(c.id, fs, s, blurSpan, w, h) || img;
+      // janela curta (até ~2 quadros da mídia): poucos quadros reais para fazer a média,
+      // então o fluxo sintetiza o rastro entre A e B; janelas maiores usam os quadros reais
+      const span = blurSpan * fs.fps;
+      const viaFlow = span < 2 && p.frameInterp === 'flow' && pr.exact && pr.B;
+      img = (viaFlow && flowGL().interp(pr.A, pr.B, `${a.id}:${pr.a}`, pr.t, w, h, span)) || this.motionBlur(c.id, fs, s, blurSpan, w, h) || img;
     } else if (rate < 0.99 && pr.exact && pr.B && pr.t > 0.02 && pr.t < 0.98 && p.frameInterp !== 'none') {
       const key = `${a.id}:${pr.a}`;
       img = (p.frameInterp === 'flow' && flowGL().interp(pr.A, pr.B, key, pr.t, w, h)) || this.blend(c.id, pr.A, pr.B, pr.t, w, h);
@@ -606,6 +610,10 @@ class Engine {
     const gap = st.tB - st.tA;
     if (st.n < 2 || gap <= 0 || gap > 1200 || st.a.width !== st.b.width) return null;
     const f = clamp((performance.now() - st.tB) / gap, 0, 1);
+    if (p.frameInterp === 'flow') {
+      const fl = flowGL().interp(st.a, st.b, `${c.id}:el:${st.n}`, f, st.b.width, st.b.height);
+      if (fl) return fl;
+    }
     const o = st.out;
     if (o.width !== st.b.width || o.height !== st.b.height) { o.width = st.b.width; o.height = st.b.height; }
     const x = o.getContext('2d');
