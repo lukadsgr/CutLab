@@ -1295,7 +1295,7 @@ function App() {
         onProgress: (p, label) => setOfflineProg({ p, label }), isCancelled: () => job.cancelled,
       });
       if (job.cancelled) return;
-      setExportState({ stage: 'done', url: URL.createObjectURL(r.blob), ext: r.ext, size: r.blob.size, seconds: r.seconds, duration: innerLength(root) });
+      setExportState({ stage: 'done', url: URL.createObjectURL(r.blob), ext: r.ext, size: r.blob.size, seconds: r.seconds, duration: innerLength(root), codec: r.codec, audio: r.audio, offline: true });
     } catch (e) {
       if (!job.cancelled) { notify('Falha na exportação: ' + (e?.message || e)); setExportState((s) => s && { ...s, stage: 'setup' }); }
     } finally {

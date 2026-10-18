@@ -2,6 +2,9 @@
    Modal de exportação
    ===================================================================== */
 function ExportModal({ state, name, resolution, setResolution, ratio, onStart, onCancel, onClose, progress, method, setMethod, offlineOk, offlineLabel }) {
+  // o áudio da exportação rápida depende dos codificadores do navegador (AAC falta em alguns, ex.: Opera)
+  const [audioSup, setAudioSup] = useState('aac');
+  useEffect(() => { if (state?.stage === 'setup' && offlineOk) offlineAudioSupport().then(setAudioSup, () => setAudioSup(null)); }, [state?.stage, offlineOk]);
   if (!state) return null;
   const [bw, bh] = RATIOS[ratio];
   const q = RESOLUTIONS[resolution];
@@ -30,6 +33,7 @@ function ExportModal({ state, name, resolution, setResolution, ratio, onStart, o
             </div>
           </div>
           <div className="stat"><span>Arquivo</span><b>{name || 'video'}.{ext}</b></div>
+          {offline && audioSup !== 'aac' && <AudioWarn kind={audioSup} before />}
           <div className="actions">
             <button className="btn" onClick={onClose}>Cancelar</button>
             <button className="btn btn-primary" onClick={onStart}><Icon name="download" size={15} /> Exportar</button>
@@ -46,6 +50,8 @@ function ExportModal({ state, name, resolution, setResolution, ratio, onStart, o
           <h2>Pronto! 🎉</h2>
           <p>Seu vídeo foi exportado ({(state.size / 1048576).toFixed(1)} MB)
             {state.seconds ? ` em ${state.seconds.toFixed(1)}s — ${(state.duration / state.seconds).toFixed(1)}× a velocidade real` : ''}.</p>
+          {state.offline && <div className="stat"><span>Codecs</span><b>{codecName(state.codec)} · {state.audio ? state.audio.toUpperCase() : 'sem áudio'}</b></div>}
+          {state.offline && state.audio !== 'aac' && <AudioWarn kind={state.audio} />}
           <div className="actions">
             <button className="btn" onClick={onClose}>Fechar</button>
             <a className="btn btn-primary" href={state.url} download={`${name || 'video'}.${state.ext}`} style={{ textDecoration: 'none' }}>
@@ -54,6 +60,20 @@ function ExportModal({ state, name, resolution, setResolution, ratio, onStart, o
           </div>
         </>)}
       </div>
+    </div>
+  );
+}
+
+const codecName = (c = '') => (c.startsWith('avc') ? 'H.264' : c.startsWith('hvc') || c.startsWith('hev') ? 'H.265' : c.startsWith('vp09') ? 'VP9' : c.startsWith('av01') ? 'AV1' : c);
+
+/** aviso quando o navegador não grava AAC: Opus no MP4 fica mudo em vários players; sem codificador, sai sem áudio */
+function AudioWarn({ kind, before }) {
+  return (
+    <div className="export-warn">
+      <Icon name="volume" size={15} />
+      <span>{kind === 'opus'
+        ? <>Este navegador não grava áudio AAC, então o som {before ? 'vai sair' : 'saiu'} em <b>Opus</b>. Players como o do Windows, alguns editores e redes sociais tocam esse MP4 <b>sem som</b>. Para AAC, exporte pelo <b>Chrome</b> ou <b>Edge</b>, ou use o método <b>Tempo real</b>.</>
+        : <>Este navegador não consegue gravar áudio na exportação rápida: o vídeo {before ? 'vai sair' : 'saiu'} <b>sem som</b>. Use o método <b>Tempo real</b> ou exporte pelo <b>Chrome</b> ou <b>Edge</b>.</>}</span>
     </div>
   );
 }

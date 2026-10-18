@@ -209,3 +209,7 @@ input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border-radius: 
 ::-webkit-scrollbar-thumb { background: #33333b; border-radius: 10px; border: 2px solid var(--panel); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-corner { background: var(--panel); }
+
+.export-warn { display: flex; gap: 9px; align-items: flex-start; margin: 10px 0 2px; padding: 9px 11px; border-radius: 8px; background: rgba(255,170,40,.1); border: 1px solid rgba(255,170,40,.35); color: #ffd28a; font-size: 12px; line-height: 1.45; }
+.export-warn svg { flex: none; margin-top: 1px; }
+.export-warn b { color: #fff; }

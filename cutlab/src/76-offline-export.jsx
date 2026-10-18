@@ -29,6 +29,8 @@ async function pickVideoCodec(w, h, fps, bitrate) {
   }
   return null;
 }
+/** como a exportação rápida vai gravar o áudio neste navegador: 'aac' (ideal), 'opus' ou null (sem áudio) */
+async function offlineAudioSupport() { return (await pickAudioCodec(48000))?.mux ?? null; }
 async function pickAudioCodec(sr) {
   if (!window.AudioEncoder) return null;
   for (const [codec, mux] of [['mp4a.40.2', 'aac'], ['opus', 'opus']]) {
@@ -220,5 +222,5 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
   }
   onProgress(1, 'Finalizando…');
   muxer.finalize();
-  return { blob: new Blob([target.buffer], { type: 'video/mp4' }), ext: 'mp4', codec: v.cfg.codec, seconds: (performance.now() - started) / 1000 };
+  return { blob: new Blob([target.buffer], { type: 'video/mp4' }), ext: 'mp4', codec: v.cfg.codec, audio: mix ? aud.mux : null, seconds: (performance.now() - started) / 1000 };
 }
