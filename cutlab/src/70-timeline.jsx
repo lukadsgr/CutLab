@@ -52,7 +52,9 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   onDropAsset, settleClip, rowApi, onDropEffect, onDropTransition, trackState, toggleTrack, zoom, setZoom, snap, setSnap, markers, actions, tools }) {
   const scrollRef = useRef();
   const [dropTrack, setDropTrack] = useState(null);
-  const [hw, setHw] = useStoredNumber('cutlab-tlHeadW', 430); // largura do painel de camadas
+  const [hwSaved, setHw] = useStoredNumber('cutlab-tlHeadW', 430); // largura do painel de camadas
+  const vp = useViewport();
+  const hw = Math.min(hwSaved, Math.max(HEAD_MIN, Math.round(vp.w * 0.3))); // em telas estreitas sobra espaço para os clipes
   const [labelMenu, setLabelMenu] = useState(null);
   // o nome tem prioridade: TrkMat some primeiro, depois Pai e vínculo
   const free = hw - 168;

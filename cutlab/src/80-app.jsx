@@ -48,6 +48,8 @@ function App() {
   const [tlH, setTlH] = useStoredNumber('cutlab-tlH', 330);
   const [leftW, setLeftW] = useStoredNumber('cutlab-leftW', 470);
   const [rightW, setRightW] = useStoredNumber('cutlab-rightW', 360);
+  const vp = useViewport();
+  const fit = fitLayout(vp, leftW, rightW, tlH);   // tamanhos encaixados na janela atual
   const [tool, setTool] = useState(null);
   const [brush, setBrush] = useState(40);
   const previewRef = useRef(null);
@@ -1360,10 +1362,10 @@ function App() {
   /* colunas redimensionáveis: arraste as divisórias; clique duplo restaura */
   const startCol = (side) => (e) => {
     e.preventDefault();
-    const sx = e.clientX, start = side === 'left' ? leftW : rightW;
+    const sx = e.clientX, start = side === 'left' ? fit.left : fit.right;
     const move = (ev) => {
       const dx = ev.clientX - sx;
-      const other = side === 'left' ? rightW : leftW;
+      const other = side === 'left' ? fit.right : fit.left;
       const max = Math.max(300, window.innerWidth - other - 360);
       if (side === 'left') setLeftW(clamp(start + dx, 300, Math.min(900, max)));
       else setRightW(clamp(start - dx, 260, Math.min(700, max)));
@@ -1374,7 +1376,7 @@ function App() {
     window.addEventListener('pointerup', up);
   };
   const startResize = (e) => {
-    const sy = e.clientY, sh = tlH;
+    const sy = e.clientY, sh = fit.tl;
     const move = (ev) => setTlH(clamp(sh - (ev.clientY - sy), 200, window.innerHeight - 260));
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move);
@@ -1384,7 +1386,7 @@ function App() {
   const selectedAsset = selected ? assetMap[selected.assetId] : null;
 
   return (
-    <div className="app" style={{ '--tl-h': `${tlH}px` }}>
+    <div className="app" style={{ '--tl-h': `${fit.tl}px` }}>
       <input ref={importRef} type="file" multiple hidden accept="video/*,image/*,audio/*" onChange={(e) => { importFiles([...e.target.files]); e.target.value = ''; }} />
       <input ref={projectFileRef} type="file" hidden accept=".cutlab" onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openProjectFile(f); }} />
       <TopBar name={projectName} setName={setProjectName} onExport={openExport} canExport={duration > 0} hist={hist} saveState={saveState}
@@ -1394,7 +1396,7 @@ function App() {
       <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
         <filter id="cl-sharpen"><feConvolveMatrix order="3" kernelMatrix="0 -1 0 -1 5 -1 0 -1 0" preserveAlpha="true" /></filter>
       </svg>
-      <div className="workspace" style={{ gridTemplateColumns: `${leftW}px 5px minmax(0, 1fr) 5px ${rightW}px` }}>
+      <div className="workspace" style={{ gridTemplateColumns: `${fit.left}px 5px minmax(0, 1fr) 5px ${fit.right}px` }}>
         <LeftPanel assets={assets} onImport={importFiles} onAddAsset={(a) => addAsset(a)} onRemoveAsset={removeAsset}
           onAddText={addText} onAddSticker={addSticker} onAddColor={addColor} onAddSfx={addSfx}
           selected={selected} selectedAsset={selectedAsset} onApplyFilter={applyFilter}
