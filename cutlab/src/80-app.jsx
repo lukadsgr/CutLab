@@ -1843,7 +1843,7 @@ const perfDiag = {
   on: false,
   reset() {
     Object.assign(this, { n: 0, slow: 0, worst: 0, sum: 0, last: 0, lastT: 0, prev: null, hitches: [], recent: [] });
-    for (const el of engine.media.values()) el._seeks = 0;
+    for (const el of engine.media.values()) { el._seeks = 0; el._why = {}; }
   },
   frame(now, t, playing, syncMs, drawMs, clips) {
     if (!playing) { this.last = 0; return; }
@@ -1871,8 +1871,13 @@ const perfDiag = {
     const c = canvasPreviewSize();
     // buscas por mídia desde que o diagnóstico abriu: durante o play deveriam ser quase zero
     const buscas = {};
-    for (const el of engine.media.values()) if (el._seeks) buscas[el._name || '?'] = (buscas[el._name || '?'] || 0) + el._seeks;
-    return JSON.stringify({ quadros: this.n, lentos: this.slow, buscas, medioMs: this.n ? +(this.sum / this.n).toFixed(1) : 0, piorMs: Math.round(this.worst), previa: c, dpr: window.devicePixelRatio, ua: navigator.userAgent, engasgos: this.hitches }, null, 1);
+    for (const el of engine.media.values()) {
+      if (!el._seeks) continue;
+      const b = buscas[el._name || '?'] ||= { total: 0, elementos: 0, motivos: {} };
+      b.total += el._seeks; b.elementos++;
+      for (const [k, n] of Object.entries(el._why || {})) b.motivos[k] = (b.motivos[k] || 0) + n;
+    }
+    return JSON.stringify({ quadros: this.n, lentos: this.slow, elementos: engine.media.size, buscas, medioMs: this.n ? +(this.sum / this.n).toFixed(1) : 0, piorMs: Math.round(this.worst), previa: c, dpr: window.devicePixelRatio, ua: navigator.userAgent, engasgos: this.hitches }, null, 1);
   },
 };
 perfDiag.reset();

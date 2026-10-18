@@ -245,12 +245,25 @@ class Engine {
     const driven = this._driven || (this._driven = new Set());
     driven.clear();
     let stalled = false, master = null, mRank = 0;
+    // corte sem salto (o próximo pedaço continua de onde o anterior parou, no mesmo arquivo): no corte o
+    // próximo clipe herda o elemento que já está tocando — nenhuma busca, nenhum decodificador novo
+    const cont = this.contPairs(clips, pairs);
+    if (playing) for (const [b, a] of cont) {
+      if (!(t >= b.start && t < b.start + 0.5)) continue;
+      const ea = this.media.get(a.id), eb = this.media.get(b.id);
+      if (!ea || ea === eb || ea.paused || ea.seeking || (eb && !eb.paused)) continue;
+      if (Math.abs(ea.currentTime - srcTimeAt(b, t - b.start)) > 0.25) continue;
+      this.swapMedia(a.id, b.id);
+    }
     for (const c of clips) {
       if (!isMedia(c)) continue;
       // id repetido: um elemento só pode seguir um clipe (dois comandos brigariam a cada quadro)
       if (driven.has(c.id)) continue;
       const a = assetMap[c.assetId];
       if (!a || a.loading) continue;
+      // o elemento só nasce perto do clipe: cada <video> carrega e decodifica o arquivo, e um arquivo
+      // pesado cortado em vários pedaços virava vários decodificadores disputando a placa de vídeo
+      if (!this.media.has(c.id) && !(t >= c.start - 3 && t < c.start + c.duration + 0.5)) continue;
       const el = this.getMedia(c, a);
       el._name = c.name || a.name || c.type;
       driven.add(c.id);
@@ -283,7 +296,7 @@ class Engine {
             // o início. Um pouco atrás (até 0,1 s) o relógio mestre absorve
             const d = state.src - el.currentTime;
             if (el.seeking) stalled = state.active || stalled;   // uma busca por vez: espera a atual terminar
-            else if (el.readyState < 2 || d > 0.1 || d < -0.02) { this.seek(c.id, el, state.src); stalled = state.active || stalled; }
+            else if (el.readyState < 2 || d > 0.1 || d < -0.02) { this.seek(c.id, el, state.src, 'início'); stalled = state.active || stalled; }
             el.playbackRate = rate;
             this.startPlay(el);
           } else if (!el.seeking) {
@@ -297,7 +310,7 @@ class Engine {
             const fast = rate > 2;
             if (Math.abs(err) > (fast ? rate * 0.6 : 0.3)) {
               // salto grande (travada, decodificador que não acompanha 10×): busca um pouco à frente
-              this.seek(c.id, el, Math.min(lim, state.src + Math.min(0.3, rate * 0.05)));
+              this.seek(c.id, el, Math.min(lim, state.src + Math.min(0.3, rate * 0.05)), 'atraso');
               el.playbackRate = rate;
             } else if (Math.abs(err) < 0.03) {
               // sincronizado: velocidade exata. Mudar a velocidade estica o som (preservesPitch)
@@ -315,23 +328,28 @@ class Engine {
           if (roll && el.paused && Math.abs(el.currentTime - cin) < 0.03) { el.playbackRate = rate; this.startPlay(el); }
           else if (!roll || el.paused) {
             if (!el.paused) el.pause();
-            if (!el.seeking && Math.abs(el.currentTime - state.src) > 0.03) this.seek(c.id, el, state.src);
+            if (!el.seeking && Math.abs(el.currentTime - state.src) > 0.03) this.seek(c.id, el, state.src, playing ? 'transição' : 'parado');
           }
         }
       } else {
         const until = c.start - t;
+        // continua de um pedaço anterior que está tocando: vai herdar o elemento dele no corte (acima),
+        // então o próprio fica quieto — sem pré-rolagem nem busca no mesmo arquivo pesado
+        const prev = cont.get(c);
+        const inherit = playing && prev && t >= prev.start && this.media.get(prev.id) && !this.media.get(prev.id).paused;
         // pré-rolagem: o <video> leva ~0,1–0,2 s entre play() e o primeiro quadro andando. Começa a
         // tocar (sem som) do ponto de entrada um pouco antes do corte — a antecedência é a latência
         // medida —, e no corte ele já está rodando em vez de congelar a imagem
-        const roll = playing && until > 0 && until <= this.playLat && !c.speedCurve && el.readyState >= 2 && !el.seeking;
+        const roll = !inherit && playing && until > 0 && until <= this.playLat && !c.speedCurve && el.readyState >= 2 && !el.seeking;
         if (roll && el.paused && Math.abs(el.currentTime - cin) < 0.03) {
           this.setVolume(c.id, el, 0);
           el.playbackRate = clamp(c.speed, 0.0625, 16);
           this.startPlay(el);
         } else if (!roll || el.paused) {
           if (!el.paused) el.pause();
-          // pré-posiciona o próximo clipe para evitar quadro preto
-          if (until > 0 && until < 1.5 && !el.seeking && Math.abs(el.currentTime - cin) > 0.05) el.currentTime = cin;
+          // pré-posiciona o próximo clipe para evitar quadro preto. Com antecedência: em gravações de tela
+          // (quadros-chave espaçados) uma busca pode levar mais de um segundo
+          if (!inherit && until > 0 && until < 3 && !el.seeking && Math.abs(el.currentTime - cin) > 0.05) this.seek(c.id, el, cin, 'próximo');
         }
       }
       // latência do play(): do comando até o tempo da mídia começar a andar (média móvel)
@@ -350,6 +368,34 @@ class Engine {
       if (driven.has(id) || el.paused) continue;
       el.pause();
       this.rates.delete(id);
+    }
+  }
+  /** pares (B → A): B continua exatamente de onde A parou, no mesmo arquivo e velocidade (corte sem salto) */
+  contPairs(clips, pairs) {
+    if (this._cpIn === clips) return this._cp;
+    const m = new Map();
+    const media = clips.filter((c) => (c.type === 'video' || c.type === 'audio') && !c.speedCurve);
+    for (const b of media) {
+      const a = media.find((x) => x !== b && x.assetId === b.assetId && Math.abs(x.speed - b.speed) < 1e-3
+        && Math.abs(x.start + x.duration - b.start) < 0.05 && Math.abs(x.in + x.duration * x.speed - b.in) < 0.1);
+      // com transição entre eles os dois aparecem juntos: cada um precisa do seu elemento
+      if (a && !pairs.some((p) => p.A === a && p.B === b)) m.set(b, a);
+    }
+    this._cpIn = clips; this._cp = m;
+    return m;
+  }
+  /** troca os elementos (e o que é ligado a eles) entre dois clipes */
+  swapMedia(x, y) {
+    for (const m of [this.media, this.gains, this.hold, this.rates]) {
+      const a = m.get(x), b = m.get(y);
+      if (b !== undefined) m.set(x, b); else m.delete(x);
+      if (a !== undefined) m.set(y, a); else m.delete(y);
+    }
+    // o registro de quadros (câmera lenta) é por clipe: recomeça para cada elemento
+    for (const id of [x, y]) {
+      this.frames.delete(id);
+      const el = this.media.get(id);
+      if (el?.tagName === 'VIDEO') this.watchFrames(id, el);
     }
   }
   /** play() anotando quando foi pedido (para medir a latência de início, ver sync) */
@@ -705,7 +751,9 @@ class Engine {
     return { state: fs.state, error: fs.error, codec: fs.codec, w: fs.width, h: fs.height, fps: fs.fps, cached: fs.frames?.size || 0 };
   }
   /** guarda o quadro atual e então busca — evita quadro preto enquanto o decodificador procura */
-  seek(id, el, t) {
+  seek(id, el, t, why = 'outro') {
+    el._why ||= {};
+    el._why[why] = (el._why[why] || 0) + 1;   // motivo, para o diagnóstico de reprodução
     if (el.readyState >= 2 && el.videoWidth && !el.seeking) {
       let h = this.hold.get(id);
       if (!h) { h = document.createElement('canvas'); this.hold.set(id, h); }
