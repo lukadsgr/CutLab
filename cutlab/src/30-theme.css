@@ -492,7 +492,8 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.35); box-sha
 /* faixas ancoradas embaixo: novas camadas crescem para cima sem empurrar o que está sob o cursor */
 .tl-content { display: flex; flex-direction: column; }
 .tl-content > .tl-row { flex: none; }
-.tl-fill { flex: 1 1 0; display: flex; min-height: 0; }
+/* preenchimento vai para o fim: as faixas ficam no topo e o espaço sobrando fica embaixo */
+.tl-fill { flex: 1 1 0; display: flex; min-height: 0; order: 99; }
 .tl-fill .tl-head { height: auto; align-self: stretch; border-bottom: 0; }
 
 /* ---------- réguas e guias ---------- */

@@ -42,21 +42,88 @@ async function pickAudioCodec(sr) {
 async function mixProjectAudio(clips, assetMap, ts, dur, sr) {
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(dur * sr)), sr);
   const cache = new Map();
+  const media = expandMedia(clips, ts).filter(isMedia);
+  // trecho da mídia (s) que o projeto usa de cada arquivo: o plano B decodifica só isso
+  const span = new Map();
+  for (const c of media) {
+    const [x, y] = span.get(c.assetId) || [Infinity, -Infinity];
+    span.set(c.assetId, [Math.min(x, srcTimeAt(c, 0)), Math.max(y, srcTimeAt(c, c.duration))]);
+  }
+  const unread = new Set();
+  const viaMp4 = async (a, file) => {
+    const [x, y] = span.get(a.id);
+    const r = await decodeMp4Audio(file, x, y).catch(() => null);
+    if (!r) return null;
+    const buf = new AudioBuffer({ length: r.channels[0].length, numberOfChannels: r.channels.length, sampleRate: r.sampleRate });
+    r.channels.forEach((ch, i) => buf.copyToChannel(ch, i));
+    return { buf, offset: r.offset };
+  };
+  /**
+   * Último recurso: toca o trecho num elemento de mídia (sem som nos alto-falantes) e grava a saída.
+   * Funciona em qualquer navegador que consiga tocar o arquivo, mesmo sem suporte do Web Audio/WebCodecs
+   * ao codec (ex.: AAC no Opera). Sem correção de tom, o trecho gravado é o áudio comprimido no tempo.
+   */
+  const viaElement = async (a) => {
+    const [x, y] = span.get(a.id);
+    // transcrição (16 kHz) aceita 4× (som até 6 kHz); na exportação grava em tempo real, com qualidade total
+    const SPEED = sr <= 16000 ? 4 : 1, rt = new AudioContext();
+    const el = document.createElement('video');
+    el.src = a.url; el.preload = 'auto'; el.playsInline = true;
+    el.preservesPitch = false; el.mozPreservesPitch = false; el.webkitPreservesPitch = false;
+    try {
+      await new Promise((res, rej) => { el.onloadedmetadata = res; el.onerror = rej; setTimeout(rej, 15000); });
+      const from = Math.max(0, x - 0.05), to = Math.min(el.duration || y, y + 0.05);
+      el.currentTime = from;
+      await new Promise((res) => { el.onseeked = res; setTimeout(res, 5000); });
+      const srcNode = rt.createMediaElementSource(el);   // desvia o som dos alto-falantes
+      const proc = rt.createScriptProcessor(4096, 2, 2);
+      const chunks = [[], []];
+      let startAt = null;
+      proc.onaudioprocess = (e) => {
+        if (el.paused || el.currentTime < from) return;
+        if (startAt == null) startAt = el.currentTime - e.inputBuffer.duration * SPEED;   // início aproximado do primeiro bloco
+        for (let c = 0; c < 2; c++) chunks[c].push(e.inputBuffer.getChannelData(Math.min(c, e.inputBuffer.numberOfChannels - 1)).slice());
+      };
+      const mute = rt.createGain(); mute.gain.value = 0;
+      srcNode.connect(proc).connect(mute).connect(rt.destination);
+      await rt.resume();
+      el.playbackRate = SPEED;
+      await el.play();
+      await new Promise((res) => { const tick = () => (el.ended || el.currentTime >= to ? res() : setTimeout(tick, 50)); tick(); setTimeout(res, ((to - from) / SPEED + 10) * 1000); });
+      el.pause();
+      const n = chunks[0].reduce((s, b) => s + b.length, 0);
+      if (!n) return null;
+      const buf = new AudioBuffer({ length: n, numberOfChannels: 2, sampleRate: rt.sampleRate / SPEED });   // 4 s de mídia em 1 s gravado: 1/4 das amostras por segundo
+      for (let c = 0; c < 2; c++) { let o = 0; for (const b of chunks[c]) { buf.copyToChannel(b, c, o); o += b.length; } }
+      return { buf, offset: Math.max(0, startAt ?? from) };
+    } catch { return null; }
+    finally { el.pause(); el.removeAttribute('src'); el.load(); rt.close(); }
+  };
+  /** { buf, offset } — offset = tempo da mídia onde o buffer começa */
   const bufOf = (a) => {
     if (!cache.has(a.id)) cache.set(a.id, (async () => {
-      try { return await ctx.decodeAudioData(await (a.file ? a.file.arrayBuffer() : fetch(a.url).then((r) => r.arrayBuffer()))); }
-      catch { return null; }   // vídeo sem trilha de áudio
+      const file = a.file || await fetch(a.url).then((r) => r.blob()).catch(() => null);
+      if (!file) return null;
+      const big = file.size > 150e6;   // decodeAudioData decodificaria o arquivo inteiro na memória
+      if (a.type === 'video' && big) { const r = await viaMp4(a, file); if (r) return r; }
+      try { return { buf: await ctx.decodeAudioData(await file.arrayBuffer()), offset: 0 }; }
+      catch {
+        // gravações de tela (MP4 fragmentado) e afins: lê a faixa de áudio pelo índice próprio
+        const r = (a.type === 'video' && !big ? await viaMp4(a, file) : null) || (a.url ? await viaElement(a) : null);
+        if (!r && a.type === 'video' && (await MP4.index(file, 'soun').then(() => true, () => false))) unread.add(a.name);
+        return r;
+      }
     })());
     return cache.get(a.id);
   };
   const solo = soloOn(ts);
-  for (const c of expandMedia(clips, ts)) {
-    if (!isMedia(c)) continue;
+  for (const c of media) {
     const muted = c._sub ? c._muted : (ts[c.track]?.muted || ts[clipRow(c)]?.muted || (solo && !ts[clipRow(c)]?.solo));
     const a = assetMap[c.assetId];
     if (muted || !a || a.loading) continue;
-    const buf = await bufOf(a);
-    if (!buf) continue;
+    const got = await bufOf(a);
+    if (!got) continue;
+    const { buf, offset } = got;
     const t0 = Math.max(c.start, c._win ? c._win[0] : 0), t1 = Math.min(c.start + c.duration, c._win ? c._win[1] : Infinity, dur);
     if (t1 - t0 < 1e-3) continue;
     const rate = srcSpan(c) / c.duration;
@@ -72,9 +139,13 @@ async function mixProjectAudio(clips, assetMap, ts, dur, sr) {
       if (i === 0) g.gain.setValueAtTime(v, t); else g.gain.linearRampToValueAtTime(v, t);
     }
     src.connect(g).connect(ctx.destination);
-    src.start(t0, srcTimeAt(c, t0 - c.start), (t1 - t0) * rate);
+    const at = srcTimeAt(c, t0 - c.start) - offset;
+    // o buffer parcial pode começar um pouco depois do ponto pedido: atrasa o início em vez de cortar
+    src.start(t0 + Math.max(0, -at) / rate, Math.max(0, at), (t1 - t0) * rate);
   }
-  return ctx.startRendering();
+  const out = await ctx.startRendering();
+  out.unread = [...unread];   // vídeos com faixa de áudio que não conseguimos ler
+  return out;
 }
 
 /**

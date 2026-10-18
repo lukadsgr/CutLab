@@ -68,8 +68,32 @@ const MP4 = (() => {
     return null;
   }
 
-  /** extrai a tabela de amostras do primeiro trak de vídeo */
-  function parseMoov(dv, root) {
+  /** configuração do AudioDecoder a partir de uma entrada mp4a (AAC/MP3 dentro de MP4) */
+  function audioCodecOf(dv, entry) {
+    if (entry.t !== 'mp4a') return null;
+    const ver = dv.getUint16(entry.body + 8);
+    const channels = dv.getUint16(entry.body + 16), sampleRate = dv.getUint32(entry.body + 24) >>> 16;
+    const esds = [...kids(dv, entry.body + 28 + (ver === 1 ? 16 : ver === 2 ? 36 : 0), entry.end)].find((k) => k.t === 'esds');
+    if (!esds) return { codec: 'mp4a.40.2', sampleRate, numberOfChannels: channels };
+    // descritores MPEG-4: ES (3) → DecoderConfig (4) → DecoderSpecificInfo (5)
+    let o = esds.body + 4, oti = 0x40, asc = null;
+    const end = esds.end;
+    const len = () => { let n = 0; for (let i = 0; i < 4; i++) { const b = dv.getUint8(o++); n = (n << 7) | (b & 0x7f); if (!(b & 0x80)) break; } return n; };
+    while (o < end - 2) {
+      const tag = dv.getUint8(o++), n = len();
+      if (tag === 3) { const fl = dv.getUint8(o + 2); o += 3; if (fl & 0x80) o += 2; if (fl & 0x40) o += 1 + dv.getUint8(o); if (fl & 0x20) o += 2; }
+      else if (tag === 4) { oti = dv.getUint8(o); o += 13; }
+      else if (tag === 5) { asc = new Uint8Array(dv.buffer, dv.byteOffset + o, n).slice(); break; }
+      else o += n;
+    }
+    if (oti === 0x69 || oti === 0x6b) return { codec: 'mp3', sampleRate, numberOfChannels: channels };
+    let aot = asc ? asc[0] >> 3 : 2;
+    if (aot === 31 && asc) aot = 32 + (((asc[0] & 7) << 3) | (asc[1] >> 5));
+    return { codec: `mp4a.40.${aot}`, sampleRate, numberOfChannels: channels, ...(asc ? { description: asc } : {}) };
+  }
+
+  /** extrai a tabela de amostras do primeiro trak do tipo pedido ('vide' ou 'soun') */
+  function parseMoov(dv, root, kind = 'vide') {
     let trex = {};
     const mvex = find(dv, root, 'mvex');
     if (mvex) for (const k of kids(dv, mvex.body, mvex.end)) if (k.t === 'trex') {
@@ -78,7 +102,7 @@ const MP4 = (() => {
     for (const trak of kids(dv, root.body, root.end)) {
       if (trak.t !== 'trak') continue;
       const hdlr = path(dv, trak, 'mdia', 'hdlr');
-      if (!hdlr || T(dv, hdlr.body + 8) !== 'vide') continue;
+      if (!hdlr || T(dv, hdlr.body + 8) !== kind) continue;
       const tkhd = find(dv, trak, 'tkhd');
       const trackId = dv.getUint8(tkhd.body) ? dv.getUint32(tkhd.body + 20) : dv.getUint32(tkhd.body + 12);
       const mdhd = path(dv, trak, 'mdia', 'mdhd');
@@ -97,9 +121,10 @@ const MP4 = (() => {
       const stbl = path(dv, trak, 'mdia', 'minf', 'stbl');
       const stsd = find(dv, stbl, 'stsd');
       const entry = kids(dv, stsd.body + 8, stsd.end).next().value;
-      const width = dv.getUint16(entry.body + 24), height = dv.getUint16(entry.body + 26);
-      const cc = codecOf(dv, entry);
-      if (!cc) throw new Error(`Codec de vídeo não suportado (${entry.t})`);
+      const audio = kind === 'soun';
+      const width = audio ? 0 : dv.getUint16(entry.body + 24), height = audio ? 0 : dv.getUint16(entry.body + 26);
+      const cc = audio ? audioCodecOf(dv, entry) : codecOf(dv, entry);
+      if (!cc) throw new Error(`Codec ${audio ? 'de áudio' : 'de vídeo'} não suportado (${entry.t})`);
 
       const S = { off: [], size: [], dts: [], cto: [], sync: [] };
       const stsz = find(dv, stbl, 'stsz');
@@ -142,7 +167,7 @@ const MP4 = (() => {
       }
       return { trackId, timescale, mediaTime, width, height, ...cc, S, trex: trex[trackId] || { dur: 0, size: 0, flags: 0 } };
     }
-    throw new Error('Nenhuma faixa de vídeo no arquivo');
+    throw new Error(kind === 'soun' ? 'Nenhuma faixa de áudio no arquivo' : 'Nenhuma faixa de vídeo no arquivo');
   }
 
   /** acrescenta as amostras de um moof (MP4 fragmentado) */
@@ -180,18 +205,71 @@ const MP4 = (() => {
     }
   }
 
-  async function index(file) {
+  async function index(file, kind = 'vide') {
     const top = await topLevel(file);
     const moovB = top.find((b) => b.t === 'moov');
     if (!moovB) throw new Error('Arquivo sem índice (moov)');
     const { dv, root } = await readBox(file, moovB);
-    const info = parseMoov(dv, root);
+    const info = parseMoov(dv, root, kind);
     for (const b of top) if (b.t === 'moof') { const m = await readBox(file, b); parseMoof(m.dv, m.root, b.pos, info); }
-    if (!info.S.off.length) throw new Error('Nenhuma amostra de vídeo encontrada');
+    if (!info.S.off.length) throw new Error(kind === 'soun' ? 'Nenhuma amostra de áudio encontrada' : 'Nenhuma amostra de vídeo encontrada');
     return info;
   }
   return { index };
 })();
+
+/**
+ * Áudio de um MP4 pelo índice próprio + AudioDecoder (WebCodecs), só no trecho [from, to] em segundos.
+ * Plano B para quando decodeAudioData recusa o arquivo (MP4 fragmentado de gravadores de tela,
+ * arquivos muito grandes…). Devolve { sampleRate, channels: Float32Array[], offset } ou null sem áudio.
+ */
+async function decodeMp4Audio(file, from = 0, to = Infinity) {
+  if (typeof AudioDecoder === 'undefined') return null;
+  let info;
+  try { info = await MP4.index(file, 'soun'); } catch { return null; }
+  const { S, timescale } = info;
+  const t0 = info.mediaTime || 0;
+  const sec = (i) => (S.dts[i] - t0) / timescale;
+  const cfg = { codec: info.codec, sampleRate: info.sampleRate, numberOfChannels: info.numberOfChannels, ...(info.description ? { description: info.description } : {}) };
+  if (!(await AudioDecoder.isConfigSupported(cfg).catch(() => ({}))).supported) return null;
+  // amostras do trecho (com folga: o AAC precisa de um quadro antes para aquecer)
+  let a = 0, b = S.off.length;
+  while (a < b - 1 && sec(a + 1) <= from - 0.1) a++;
+  while (b > a + 1 && sec(b - 1) > to + 0.1) b--;
+  const parts = [];
+  let total = 0, rate = info.sampleRate, nch = info.numberOfChannels, firstTs = null, failed = null;
+  const dec = new AudioDecoder({
+    output: (d) => {
+      rate = d.sampleRate; nch = d.numberOfChannels;
+      if (firstTs == null) firstTs = d.timestamp / 1e6;
+      const ch = [];
+      for (let c = 0; c < nch; c++) { const arr = new Float32Array(d.numberOfFrames); d.copyTo(arr, { planeIndex: c, format: 'f32-planar' }); ch.push(arr); }
+      parts.push(ch); total += d.numberOfFrames;
+      d.close();
+    },
+    error: (e) => { failed = e; },
+  });
+  dec.configure(cfg);
+  // lê em blocos contíguos de até 8 MB (áudio e vídeo costumam vir intercalados)
+  for (let i = a; i < b && !failed;) {
+    let j = i, end = S.off[i] + S.size[i];
+    while (j + 1 < b && S.off[j + 1] >= S.off[i] && S.off[j + 1] + S.size[j + 1] - S.off[i] < 8e6) { j++; end = Math.max(end, S.off[j] + S.size[j]); }
+    const buf = new Uint8Array(await file.slice(S.off[i], end).arrayBuffer());
+    for (let k = i; k <= j; k++) {
+      const o = S.off[k] - S.off[i];
+      dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Math.round(sec(k) * 1e6), data: buf.subarray(o, o + S.size[k]) }));
+    }
+    i = j + 1;
+    if (dec.decodeQueueSize > 200) await new Promise((r) => setTimeout(r, 0));
+  }
+  if (!failed) await dec.flush().catch((e) => { failed = e; });
+  dec.close?.();
+  if (failed || !total) return null;
+  const channels = Array.from({ length: nch }, () => new Float32Array(total));
+  let w = 0;
+  for (const ch of parts) { for (let c = 0; c < nch; c++) channels[c].set(ch[c], w); w += ch[0].length; }
+  return { sampleRate: rate, channels, offset: Math.max(0, firstTs ?? sec(a)) };
+}
 
 /** fonte de quadros exata por tempo, com cache de ImageBitmap e decodificação antecipada */
 class FrameSource {

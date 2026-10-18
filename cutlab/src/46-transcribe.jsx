@@ -43,6 +43,7 @@ async function projectSpeech(clips, assetMap, ts, from, to) {
   const a = Math.floor(from * 16000), L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
   const out = new Float32Array(Math.max(0, L.length - a));
   for (let i = 0; i < out.length; i++) out[i] = (L[a + i] + R[a + i]) / 2;
+  out.unread = buf.unread || [];
   return out;
 }
 
@@ -55,7 +56,10 @@ async function transcribeProject({ clips, assetMap, trackState, from = 0, to, la
   const pcm = await projectSpeech(clips, assetMap, trackState, from, to);
   let peak = 0;
   for (let i = 0; i < pcm.length; i += 64) peak = Math.max(peak, Math.abs(pcm[i]));
-  if (peak < 0.01) throw new Error('Não há áudio audível no trecho (verifique se as faixas não estão mudas)');
+  if (peak < 0.01) {
+    if (pcm.unread.length) throw new Error(`não consegui ler o áudio de “${pcm.unread.join('”, “')}” neste navegador (formato de áudio não suportado)`);
+    throw new Error('Não há áudio audível no trecho (verifique se as faixas não estão mudas)');
+  }
   onStage(`Baixando o modelo ${ASR_MODELS[model].name} (${ASR_MODELS[model].size}, só na primeira vez)…`, 0);
   const asr = await loadAsr(model, (f) => onStage(`Baixando o modelo ${ASR_MODELS[model].name}… ${Math.round(f * 100)}%`, f * 0.4));
   // O Whisper "puxa" as palavras para o começo quando há silêncio antes da fala:
