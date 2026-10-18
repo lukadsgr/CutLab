@@ -1,10 +1,21 @@
 // Gera CutLab.html: um único arquivo que abre direto no navegador (sem servidor).
+// O programa de desktop (desktop/build.mjs) reaproveita sources() e page() com as bibliotecas locais.
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 const srcDir = new URL('./src/', import.meta.url);
-const css = readdirSync(srcDir).filter((f) => f.endsWith('.css')).sort().map((f) => readFileSync(new URL(f, srcDir), 'utf8')).join('\n');
+const read = (ext) => readdirSync(srcDir).filter((f) => f.endsWith(ext)).sort().map((f) => readFileSync(new URL(f, srcDir), 'utf8')).join('\n');
 // os módulos são concatenados em ordem (00-core, 10-media, …, 80-app)
-const app = readdirSync(srcDir).filter((f) => f.endsWith('.jsx')).sort().map((f) => readFileSync(new URL(f, srcDir), 'utf8')).join('\n');
-const html = `<!doctype html>
+export const sources = () => ({ css: read('.css'), app: read('.jsx') });
+
+const CDN = [
+  'https://unpkg.com/react@18.3.1/umd/react.production.min.js',
+  'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js',
+  'https://unpkg.com/@babel/standalone@7.26.4/babel.min.js',
+];
+
+/** monta a página; `compiled` = o JSX já foi transformado (sem Babel no navegador) */
+export function page({ css, app, scripts = CDN, compiled = false }) {
+  return `<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8" />
@@ -18,13 +29,16 @@ ${css}</style>
 </head>
 <body>
 <div id="root"><div class="boot"><div class="boot-logo"></div><div class="boot-bar"><i></i></div><span>CutLab</span></div></div>
-<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
-<script type="text/babel" data-presets="react">
+${scripts.map((s) => `<script src="${s}"></script>`).join('\n')}
+<script${compiled ? '' : ' type="text/babel" data-presets="react"'}>
 ${app}</script>
 </body>
 </html>
 `;
-writeFileSync(new URL('./CutLab.html', import.meta.url), html);
-console.log('CutLab.html gerado (' + (html.length / 1024).toFixed(0) + ' KB)');
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const html = page(sources());
+  writeFileSync(new URL('./CutLab.html', import.meta.url), html);
+  console.log('CutLab.html gerado (' + (html.length / 1024).toFixed(0) + ' KB)');
+}

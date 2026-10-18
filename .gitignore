@@ -1,5 +1,6 @@
 # Gerado por `node cutlab/build.mjs` a partir de cutlab/src/
 cutlab/CutLab.html
+desktop/app/
 
 # Dependências e saídas de build (caso existam no futuro)
 node_modules/

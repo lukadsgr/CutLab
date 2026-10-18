@@ -45,6 +45,7 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
             <div className="menu-sep" />
             {item(menu.diagOn ? 'Fechar diagnóstico de reprodução' : 'Diagnóstico de reprodução', menu.diag, 'Ctrl+Shift+D')}
             {item('Atalhos de teclado', menu.shortcuts)}
+            {DESKTOP && item('Procurar atualizações…', openUpdates)}
             {item('Sobre o CutLab', menu.about)}
           </div>
         )}
@@ -54,6 +55,7 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
       {saveState !== 'idle' && <span className={`save-state ${saveState}`} title={saveState === 'error' ? 'O navegador recusou o salvamento (espaço cheio?). Use Menu › Salvar projeto.' : 'Salvo automaticamente neste navegador'}>
         {saveState === 'saving' ? 'Salvando…' : saveState === 'saved' ? 'Salvo' : 'Não salvo'}</span>}
       <div className="spacer" />
+      <UpdateButton />
       <button className="icon-btn" title="Desfazer (Ctrl+Z)" disabled={!hist.canUndo} onClick={hist.undo}><Icon name="undo" /></button>
       <button className="icon-btn" title="Refazer (Ctrl+Y)" disabled={!hist.canRedo} onClick={hist.redo}><Icon name="redo" /></button>
       <button className="btn btn-primary" disabled={!canExport} onClick={onExport}><Icon name="download" size={16} /> Exportar</button>

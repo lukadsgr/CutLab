@@ -1,0 +1,71 @@
+{
+  "name": "cutlab",
+  "productName": "CutLab",
+  "version": "0.1.0",
+  "description": "CutLab — Editor de Vídeo",
+  "author": "LUKADSGR",
+  "license": "GPL-3.0-only",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node build.mjs && electron .",
+    "dist": "node build.mjs && electron-builder --win --publish never",
+    "release": "node build.mjs && electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@babel/standalone": "7.26.4",
+    "electron": "33.4.11",
+    "electron-builder": "^25.1.8",
+    "mp4-muxer": "5.1.3",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "build": {
+    "appId": "io.github.lukadsgr.cutlab",
+    "productName": "CutLab",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "app/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "CutLab",
+      "artifactName": "CutLab-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "lukadsgr",
+        "repo": "CutLab",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}
