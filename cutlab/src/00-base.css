@@ -190,7 +190,7 @@ input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border-radius: 
 .clip.sel .handle { background: #fff; }
 .clip.sel .handle::after { content: ""; position: absolute; left: 3px; top: 50%; width: 2px; height: 12px; margin-top: -6px; background: #555; border-radius: 1px; }
 .clip:hover:not(.sel) .handle { background: rgba(255,255,255,.25); }
-.tl-playhead { position: absolute; top: 0; bottom: 0; width: 0; z-index: 5; pointer-events: none; }
+.tl-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 0; z-index: 5; pointer-events: none; will-change: transform; }
 .tl-playhead::before { content: ""; position: absolute; top: 0; bottom: 0; left: -0.5px; width: 1.5px; background: #fff; }
 .ph-handle { position: absolute; top: 0; left: -7px; width: 14px; height: 18px; background: #fff; clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%); pointer-events: auto; cursor: ew-resize; }
 

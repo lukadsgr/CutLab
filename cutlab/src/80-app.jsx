@@ -102,7 +102,7 @@ function App() {
   live.current = { ...live.current, clips, assetMap, playing, trackState, duration, selectedId, selectedTr, tool, brush, guides: rulers ? guides : null, mainMagnet, linkage, ripple, multi, blade, curveOpen };
 
   const notify = useCallback((msg) => { setToast(msg); clearTimeout(notify.t); notify.t = setTimeout(() => setToast(null), 2600); }, []);
-  const seek = useCallback((t) => { t = Math.max(0, t); timeRef.current = t; setTimeState(t); }, []);
+  const seek = useCallback((t) => { t = Math.max(0, t); timeRef.current = t; playClock.set(t); setTimeState(t); }, []);
 
   const select = useCallback((id) => { setSelectedId(id); setSelectedTr(null); setMulti([]); }, []);
   /** seleção inteira de uma vez (caixa de seleção na linha do tempo) */
@@ -137,7 +137,7 @@ function App() {
 
   /* loop principal: avança o tempo, sincroniza mídia e desenha */
   useEffect(() => {
-    let raf, last = performance.now();
+    let raf, last = performance.now(), lastUi = 0, uiT = 0;
     const tick = () => {
       const now = performance.now();
       const dt = Math.min(0.5, (now - last) / 1000);
@@ -146,13 +146,22 @@ function App() {
       if (offlineRef.current) return;   // exportação offline usa o motor sozinha
       if (s.playing) {
         let nt = timeRef.current + dt;
-        if (nt >= s.duration) {
+        const end = nt >= s.duration;
+        if (end) {
           nt = s.duration;
           setPlaying(false);
           if (recRef.current) recRef.current.stop();
         }
         timeRef.current = nt;
-        setTimeState(nt);
+        playClock.set(nt);
+        // o React (linha do tempo, painéis) recebe o tempo ~10×/s: redesenhar a interface
+        // inteira a cada quadro travava a reprodução em projetos com muitos clipes
+        if (end || now - lastUi > 100) { lastUi = now; uiT = nt; setTimeState(nt); }
+      } else if (uiT !== timeRef.current) {
+        // pausou (ou buscou): a interface fica com o tempo exato
+        uiT = timeRef.current;
+        playClock.set(uiT);
+        setTimeState(uiT);
       }
       const t = !s.playing && skimRef.current != null ? skimRef.current : timeRef.current;
       engine.sync(t, s.playing && t < s.duration, s.clips, s.assetMap, s.trackState);
@@ -473,8 +482,8 @@ function App() {
   }, [hist.set, select]);
 
   /* ---------- mover vários clipes ---------- */
-  const moveClips = useCallback((orig, dt, key) =>
-    hist.set((cs) => cs.map((c) => (orig.has(c.id) ? { ...c, start: orig.get(c.id) + dt } : c)), key), [hist.set]);
+  const moveClips = useCallback((orig, dt, key, layers = (cs) => cs) =>
+    hist.set((cs) => layers(cs.map((c) => (orig.has(c.id) ? { ...c, start: orig.get(c.id) + dt } : c))), key), [hist.set]);
   /** durante o arraste de um clipe: aplica `patch` nele e põe os vizinhos onde o arraste pede
    *  (`starts`); quem não está em `starts` volta para onde estava em `base` (o arraste pode ter trocado de linha) */
   const dragLayout = useCallback((id, patch, starts, base, key) => {
@@ -496,7 +505,20 @@ function App() {
     }
     const packed = finishEdit(before, compactLanes(cs), new Set(ids));
     hist.set(() => packed, key);
-    setTrackState((ts) => remapTrackState(ts, laneRemap(cs, packed)));
+    // o estado das linhas (rótulo, bloqueio, fosco...) segue os clipes; numa linha dividida, fica com quem não se moveu
+    const moved = new Set(ids);
+    setTrackState((ts) => remapTrackState(ts, laneRemap([...before.filter((c) => moved.has(c.id)), ...before.filter((c) => !moved.has(c.id))], packed)));
+  }, [hist.set]);
+  /** ordem de camada da seleção (o grupo inteiro): +1/-1 passa uma camada, 'top'/'bottom' vai para a ponta */
+  const layerOrder = useCallback((steps) => {
+    const { clips: cs, selectedId: sid, multi: more } = live.current;
+    const ids = expandGroups(cs, [...more, sid].filter(Boolean));
+    if (!ids.length) return;
+    const after = shiftLayers(cs, ids, steps);
+    if (after.every((c, i) => laneOf(c) === laneOf(cs[i]))) return;
+    hist.set(() => after);
+    const moved = new Set(ids);
+    setTrackState((ts) => remapTrackState(ts, laneRemap([...cs.filter((c) => moved.has(c.id)), ...cs.filter((c) => !moved.has(c.id))], after)));
   }, [hist.set]);
 
   /* ---------- clipes compostos ---------- */
@@ -1575,6 +1597,9 @@ function App() {
       else if (mod && key === 'v') { e.preventDefault(); pasteClip(); }
       else if (mod && key === 'g') { e.preventDefault(); e.shiftKey ? ungroupClips() : groupClips(); }
       else if (e.altKey && key === 'g') { e.preventDefault(); e.shiftKey ? ungroupCompound() : createCompound(); }
+      // ordem de camada: Ctrl+] / Ctrl+[ sobe/desce uma camada; com Shift vai para a frente/o fundo
+      else if (mod && (key === ']' || key === '}')) { e.preventDefault(); layerOrder(e.shiftKey ? 'top' : 1); }
+      else if (mod && (key === '[' || key === '{')) { e.preventDefault(); layerOrder(e.shiftKey ? 'bottom' : -1); }
       else if (mod) return;
       else if (key === 'c') split();
       else if (key === 'b') setBlade((b) => !b);
@@ -1599,7 +1624,7 @@ function App() {
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
-  }, [togglePlay, remove, split, duplicate, trimSide, keyframeHere, addMarker, openExport, saveProject, openProject, copyClip, cutClip, pasteClip, freezeFrame, createCompound, ungroupCompound, groupClips, ungroupClips, exitTo, hist.undo, hist.redo, seek, select]);
+  }, [togglePlay, remove, split, duplicate, trimSide, keyframeHere, addMarker, openExport, saveProject, openProject, copyClip, cutClip, pasteClip, freezeFrame, createCompound, ungroupCompound, groupClips, ungroupClips, layerOrder, exitTo, hist.undo, hist.redo, seek, select]);
 
   /* ---------- soltar arquivos em qualquer lugar ---------- */
   useEffect(() => {
@@ -1715,7 +1740,7 @@ function App() {
         tools={{ crumbs, exitTo, mainMagnet, setMainMagnet, ripple, setRipple, blade, setBlade, linkage, setLinkage, skim, setSkim: (v) => { setSkim(v); if (!v) skimRef.current = null; },
           onSkim: (t) => { skimRef.current = t; }, recording, onRecord: recordVoice }}
         trackState={trackState} toggleTrack={toggleTrack} zoom={zoom} setZoom={setZoom} snap={snap} setSnap={setSnap} markers={markers}
-        actions={{ split, trimSide, remove, duplicate, extractAudio, copy: copyClip, cut: cutClip, paste: pasteClip, group: groupClips, ungroupClips, canUngroupClips, bladeAt, moveClips, dragLayout, settleGroup, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
+        actions={{ split, trimSide, remove, duplicate, extractAudio, copy: copyClip, cut: cutClip, paste: pasteClip, group: groupClips, ungroupClips, canUngroupClips, bladeAt, moveClips, dragLayout, settleGroup, layerOrder, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
           removeMarker: (id) => setMarkers((m) => m.filter((x) => x.id !== id)),
           undo: hist.undo, redo: hist.redo, canUndo: hist.canUndo, canRedo: hist.canRedo }} />
       {curveOpen && selected && kfCount(selected) > 0 && (

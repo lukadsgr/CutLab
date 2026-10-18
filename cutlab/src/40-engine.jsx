@@ -185,11 +185,17 @@ class Engine {
     if (clips0 !== this._sIn || trackState !== this._sTs) { this._sIn = clips0; this._sTs = trackState; this._sOut = clips0.some(isCompound) ? expandMedia(clips0, trackState) : clips0; }
     const clips = this._sOut;
     const pairs = this.pairs(clips);
+    // elementos comandados neste quadro: qualquer outro é pausado no fim (ver abaixo)
+    const driven = this._driven || (this._driven = new Set());
+    driven.clear();
     for (const c of clips) {
       if (!isMedia(c)) continue;
+      // id repetido: um elemento só pode seguir um clipe (dois comandos brigariam a cada quadro)
+      if (driven.has(c.id)) continue;
       const a = assetMap[c.assetId];
       if (!a || a.loading) continue;
       const el = this.getMedia(c, a);
+      driven.add(c.id);
       const end = c.start + c.duration;
       let state = null;
       const inWin = !c._win || (t >= c._win[0] && t < c._win[1]);
@@ -212,13 +218,19 @@ class Engine {
           } else if (!el.seeking) {
             // erro positivo = vídeo atrasado em relação à linha do tempo
             const err = state.src - el.currentTime;
-            if (Math.abs(err) > Math.max(0.8, rate * 0.6)) {
-              // salto grande (ex.: decodificador não acompanha 10×): busca um pouco à frente
-              this.seek(c.id, el, state.src + Math.min(0.3, rate * 0.08));
+            const fast = rate > 2;
+            if (Math.abs(err) > (fast ? rate * 0.6 : 0.3)) {
+              // salto grande (travada, decodificador que não acompanha 10×): busca um pouco à frente
+              this.seek(c.id, el, state.src + Math.min(0.3, rate * 0.05));
+              el.playbackRate = rate;
+            } else if (Math.abs(err) < 0.03) {
+              // sincronizado: velocidade exata. Mudar a velocidade estica o som (preservesPitch)
+              // e, mantida, soa como eco/voz dobrada — então só corrige quando precisa
+              if (el.playbackRate !== rate) el.playbackRate = rate;
             } else {
-              // correção suave: acelera/desacelera levemente em vez de buscar (sem quadros pretos)
-              const target = clamp(rate + clamp(err * 2.2, -rate * 0.45, rate * 0.6 + 0.2), 0.0625, 16);
-              if (Math.abs(el.playbackRate - target) > Math.max(0.01, target * 0.02)) el.playbackRate = target;
+              // fora do tom (30 ms ou mais): ajuste pequeno, no máximo 4% (inaudível), até alcançar
+              const target = clamp(rate * (1 + clamp(err * 0.5, fast ? -0.3 : -0.04, fast ? 0.3 : 0.04)), 0.0625, 16);
+              if (Math.abs(el.playbackRate - target) > rate * 0.005) el.playbackRate = target;
             }
           }
         } else {
@@ -230,6 +242,14 @@ class Engine {
         // pré-posiciona o próximo clipe para evitar quadro preto
         if (c.start > t && c.start - t < 1.5 && !el.seeking && Math.abs(el.currentTime - c.in) > 0.05) el.currentTime = c.in;
       }
+    }
+    // nenhum elemento toca sem comando: clipes de outro nível (composto aberto), mídia
+    // recarregando ou clipes que acabaram de sair da linha do tempo ficariam tocando sozinhos,
+    // somando-se ao som atual (áudio "duplicado")
+    for (const [id, el] of this.media) {
+      if (driven.has(id) || el.paused) continue;
+      el.pause();
+      this.rates.delete(id);
     }
   }
   render(ctx, W, H, t, clips, assetMap, trackState, nested = false) {

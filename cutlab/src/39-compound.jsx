@@ -84,3 +84,26 @@ function expandGroups(clips, ids) {
   const mates = clips.filter((c) => !want.has(c.id) && gs.has(c.group)).map((c) => c.id);
   return [...mates, ...ids];
 }
+/** ordem de camada: leva os clipes `ids` (um grupo, por exemplo) para cima (`steps` > 0) ou para baixo (< 0)
+ *  de tantas camadas de outros clipes, em cada faixa (a Principal não tem camadas); 'top'/'bottom' vão para a ponta.
+ *  Os clipes movidos mantêm a ordem entre si e ganham camadas só deles (nada se sobrepõe); depois compacta. */
+function shiftLayers(clips, ids, steps) {
+  const want = new Set(ids), lane = new Map();
+  const tracks = new Set(clips.filter((c) => want.has(c.id) && c.track !== 'main').map((c) => c.track));
+  for (const tr of tracks) {
+    const own = [...new Set(clips.filter((c) => c.track === tr && want.has(c.id)).map(laneOf))].sort((a, b) => a - b);
+    const others = [...new Set(clips.filter((c) => c.track === tr && !want.has(c.id)).map(laneOf))].sort((a, b) => a - b);
+    const n = others.length;
+    // p = quantas camadas de outros clipes ficam abaixo do bloco movido
+    const p = steps === 'top' ? n : steps === 'bottom' ? 0
+      : steps > 0 ? Math.min(n, others.filter((l) => l <= own.at(-1)).length + steps)
+      : Math.max(0, others.filter((l) => l < own[0]).length + steps);
+    const lo = p > 0 ? others[p - 1] : n ? others[0] - 1 : -1, hi = p < n ? others[p] : lo + 1;
+    own.forEach((l, k) => lane.set(`${tr}:${l}`, lo + ((hi - lo) * (k + 1)) / (own.length + 1)));
+  }
+  const out = clips.map((c) => {
+    const l = want.has(c.id) && lane.get(`${c.track}:${laneOf(c)}`);
+    return l === false || l === undefined ? c : { ...c, lane: l };
+  });
+  return compactLanes(out);
+}

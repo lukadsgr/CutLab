@@ -338,7 +338,7 @@ function Player({ W, H, ratio, setRatio, canvasRef, overlayRef, time, duration, 
         )}
       </div>
       <div className="player-bar">
-        <div><span className="tc cur">{fmt(time)}</span> <span className="tc">/ {fmt(duration)}</span></div>
+        <div><ClockText className="tc cur" format={fmt} /> <span className="tc">/ {fmt(duration)}</span></div>
         <div className="transport">
           <button className="icon-btn" title="Início (Home)" onClick={() => onSeek(0)}><Icon name="skipBack" size={16} /></button>
           <button className={`play-btn ${playing ? 'is-playing' : ''}`} title="Reproduzir/Pausar (Espaço)" onClick={onToggle}><span key={playing ? 'p' : 's'} className="play-ic"><Icon name={playing ? 'pause' : 'play'} size={16} /></span></button>

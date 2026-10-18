@@ -3,7 +3,8 @@
    ===================================================================== */
 // largura do painel de camadas: estado `hw` dentro da Timeline (redimensionável)
 
-function ClipView({ c, asset, pps, selected, grouped, onDown, onKfDown, onOpen, onMenu, label: labelColor, locked, dragging }) {
+// memo: com centenas de clipes (ex.: legendas palavra por palavra), só redesenha o clipe que mudou
+const ClipView = React.memo(function ClipView({ c, asset, pps, selected, grouped, onDown, onKfDown, onOpen, onMenu, label: labelColor, locked, dragging }) {
   const left = c.start * pps;
   const width = Math.max(4, c.duration * pps);
   let wave = null;
@@ -48,6 +49,12 @@ function ClipView({ c, asset, pps, selected, grouped, onDown, onKfDown, onOpen, 
       <div className="handle r" onPointerDown={(e) => onDown(e, c, 'right')} />
     </div>
   );
+});
+/** função estável que sempre chama a versão mais recente de fn (para não quebrar o memo) */
+function useStableFn(fn) {
+  const ref = useRef(fn);
+  ref.current = fn;
+  return useCallback((...a) => ref.current?.(...a), []);
 }
 
 /** arraste com inserção: o clipe `id` (duração D) quer começar em `ns` na linha (track, lane).
@@ -184,12 +191,19 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   const pairs = useMemo(() => transitionPairs(clips), [clips]);
   const groups = useMemo(() => liveGroups(clips), [clips]);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!playing || !el) return;
-    const x = hw + time * pps;
-    if (x > el.scrollLeft + el.clientWidth - 40 || x < el.scrollLeft + hw) el.scrollLeft = x - hw - 40;
-  }, [time, playing, pps]);
+  // cursor: anda a cada quadro pelo relógio (o React só recebe o tempo ~10×/s na reprodução)
+  const headRef = useRef();
+  const placeHead = (t) => {
+    const ph = headRef.current, el = scrollRef.current;
+    if (!ph) return;
+    // lê antes de escrever: ler a rolagem depois de mexer no estilo força um layout a cada quadro
+    const sl = el?.scrollLeft ?? 0, cw = el?.clientWidth ?? 0, x = hw + t * pps;
+    ph.style.transform = `translateX(${x}px)`;
+    ph.classList.toggle('under-head', t * pps < sl - 1);
+    if (playing && el && (x > sl + cw - 40 || x < sl + hw)) el.scrollLeft = x - hw - 40;
+  };
+  useClock(placeHead);
+  useLayoutEffect(() => placeHead(playClock.t), [time, playing, pps, hw, scrollX]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -392,17 +406,26 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     const sx = e.clientX, key = 'gdrag:' + uid(), scroll0 = scrollRef.current.scrollLeft;
     const points = [time, 0, ...markers.map((m) => m.t), ...clips.filter((c) => !orig.has(c.id)).flatMap((c) => [c.start, c.start + c.duration])];
     const edges = group.flatMap((c) => [c.start, c.start + c.duration]);
-    let moved = false;
+    // na vertical, cada altura de linha arrastada passa o grupo por uma camada de outros clipes (sem trocar de faixa)
+    const ref = clip.track !== 'main' ? clip : group.find((c) => c.track !== 'main');
+    const sy = e.clientY, rowH = ref ? scrollRef.current.querySelector(`.tl-lane[data-track="${ref.track}"][data-lane="${laneOf(ref)}"]`)?.getBoundingClientRect().height || 0 : 0;
+    const baseLane = new Map(clips.map((c) => [c.id, laneOf(c)]));
+    const restore = (cs) => cs.map((c) => (baseLane.has(c.id) && baseLane.get(c.id) !== laneOf(c) ? { ...c, lane: baseLane.get(c.id) } : c));
+    let moved = false, slid = false;
     onEdgeDrag((ev) => {
-      if (!moved && Math.abs(ev.clientX - sx) < 3) return;
+      if (!moved && Math.abs(ev.clientX - sx) < 3 && Math.abs(ev.clientY - sy) < 6) return;
       moved = true;
       let dt = (ev.clientX - sx + scrollRef.current.scrollLeft - scroll0) / pps;
-      if (snap && !ev.altKey) {
+      slid ||= Math.abs(dt * pps) >= 3;   // arraste só na vertical não desliza nem encaixa no tempo
+      if (!slid) dt = 0;
+      else if (snap && !ev.altKey) {
         let bd = 8 / pps, fix = null;
         for (const e0 of edges) for (const p of points) { const d = p - (e0 + dt); if (Math.abs(d) < bd) { bd = Math.abs(d); fix = d; } }
         if (fix != null) dt += fix;
       }
-      actions.moveClips(orig, Math.max(-minStart, dt), key);
+      const steps = rowH ? Math.round((sy - ev.clientY) / rowH) : 0;
+      // as camadas partem sempre de como estavam ao pegar o grupo
+      actions.moveClips(orig, Math.max(-minStart, dt), key, (cs) => (steps ? shiftLayers(restore(cs), [...orig.keys()], steps) : restore(cs)));
     }, () => { if (moved) actions.settleGroup([...orig.keys()], key, clips); else onSetSel([clip.id]); });
   };
 
@@ -453,6 +476,10 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   const minor = (step * pps) / 5;
   const rulerBg = `repeating-linear-gradient(90deg, #3a3a43 0 1px, transparent 1px ${minor}px)`;
   const dropTypes = ['text/asset', 'text/effect', 'text/transition'];
+  const onClipDown = useStableFn(startDrag);
+  const onClipKfDown = useStableFn(startKfDrag);
+  const onClipOpen = useStableFn(actions.enterCompound);
+  const onClipMenu = useStableFn(openClipMenu);
 
   return (
     <div className={`timeline ${dragId ? 'clip-dragging' : ''} ${playing ? 'playing' : ''} ${tools.blade ? 'blade-mode' : ''} ${tools.crumbs?.length ? 'nested' : ''}`}>
@@ -511,7 +538,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
               <span className="ae-sw" title="Visível · Áudio · Solo · Bloqueio"><Icon name="eye" size={11} /><Icon name="volume" size={11} /><span className="solo-dot" /><Icon name="lock" size={11} /></span>
               <span className="ae-label-h"><Icon name="tag" size={10} /></span>
               <span className="ae-num">#</span>
-              <span className="ae-tc">{fmt(time)}</span>
+              <ClockText className="ae-tc" format={fmt} />
               <span className="ae-col ae-matte">TrkMat</span>
               <span className="ae-col ae-parent">Pai e vínculo</span>
               <div className="head-resizer" onPointerDown={startHeadResize} onDoubleClick={() => setHw(430)} title="Arraste para redimensionar o painel de camadas" />
@@ -559,7 +586,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
                     else onDropTransition(trn, at, rk);
                   }}>
                   {trackClips.map((c) => (
-                    <ClipView key={c.id} c={c} asset={assetMap[c.assetId]} pps={pps} selected={c.id === selectedId || multi.includes(c.id)} grouped={groups.has(c.group)} dragging={c.id === dragId} onDown={startDrag} onKfDown={startKfDrag} onOpen={actions.enterCompound} onMenu={openClipMenu} label={label} locked={st.lock} />
+                    <ClipView key={c.id} c={c} asset={assetMap[c.assetId]} pps={pps} selected={c.id === selectedId || multi.includes(c.id)} grouped={groups.has(c.group)} dragging={c.id === dragId} onDown={onClipDown} onKfDown={onClipKfDown} onOpen={onClipOpen} onMenu={onClipMenu} label={label} locked={st.lock} />
                   ))}
                   {pairs.filter((pr) => pr.row === rk).map(({ B, d }) => {
                     const w = Math.max(18, d * pps);
@@ -587,7 +614,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
           {tools.blade && bladeT && bladeT.t * pps >= scrollX && <div className={`tl-blade ${bladeT.all ? 'all' : ''}`} style={{ left: hw + bladeT.t * pps }}><span>{bladeT.all ? 'Cortar tudo · ' : ''}{fmt(bladeT.t)}</span></div>}
           {marq && <div className="tl-marquee" style={marq} />}
           {skimT != null && skimT * pps >= scrollX && <div className="tl-skim" style={{ left: hw + skimT * pps }}><span>{fmt(skimT)}</span></div>}
-          <div className={`tl-playhead ${phSnap ? 'snapped' : ''} ${time * pps < scrollX - 1 ? 'under-head' : ''}`} style={{ left: hw + time * pps }}>
+          <div ref={headRef} className={`tl-playhead ${phSnap ? 'snapped' : ''} ${playClock.t * pps < scrollX - 1 ? 'under-head' : ''}`} style={{ transform: `translateX(${hw + playClock.t * pps}px)` }}>
             <div className="ph-handle" onPointerDown={startScrub} />
           </div>
           {clipMenu && (() => {
@@ -609,6 +636,11 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
           actions.canCompound && { icon: 'layers', label: 'Criar clipe composto', kbd: 'Alt G', run: actions.compound },
           isCompound(c) && { icon: 'ungroup', label: 'Desfazer composto', kbd: 'Alt ⇧ G', run: actions.ungroup },
           'sep',
+          c.track !== 'main' && { icon: 'layerUp', label: 'Trazer para frente', hint: groups.has(c.group) ? 'o grupo todo' : null, kbd: 'Ctrl ]', run: () => actions.layerOrder(1) },
+          c.track !== 'main' && { icon: 'layerDown', label: 'Enviar para trás', hint: groups.has(c.group) ? 'o grupo todo' : null, kbd: 'Ctrl [', run: () => actions.layerOrder(-1) },
+          c.track !== 'main' && { icon: 'layerUp', label: 'Trazer para o topo', kbd: 'Ctrl ⇧ ]', run: () => actions.layerOrder('top') },
+          c.track !== 'main' && { icon: 'layerDown', label: 'Enviar para o fundo', kbd: 'Ctrl ⇧ [', run: () => actions.layerOrder('bottom') },
+          c.track !== 'main' && 'sep',
           { icon: 'trash', label: 'Excluir', kbd: 'Del', danger: true, run: actions.remove },
         ].filter(Boolean);
         const h = items.length * 30;

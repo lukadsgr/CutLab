@@ -1,5 +1,21 @@
 const { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } = React;
 
+/** relógio da reprodução: avisado a cada quadro sem passar pelo React (que recebe o tempo
+ *  só ~10×/s durante a reprodução). Cursor e timecodes leem daqui para andar suaves. */
+const playClock = { t: 0, subs: new Set(), set(t) { if (t === this.t) return; this.t = t; for (const f of this.subs) f(t); } };
+/** chama fn(t) a cada mudança do relógio enquanto o componente estiver montado */
+function useClock(fn) {
+  const ref = useRef(fn);
+  ref.current = fn;
+  useEffect(() => { const f = (t) => ref.current(t); playClock.subs.add(f); return () => { playClock.subs.delete(f); }; }, []);
+}
+/** texto que acompanha o relógio (ex.: timecode) sem re-renderizar o componente */
+function ClockText({ format, className }) {
+  const ref = useRef();
+  useClock((t) => { if (ref.current) ref.current.textContent = format(t); });
+  return <span ref={ref} className={className}>{format(playClock.t)}</span>;
+}
+
 /** troca de estado com View Transitions (quando o navegador suporta) */
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 function vt(fn) {
@@ -285,6 +301,8 @@ const ICONS = {
   paste: { d: [rrect(5, 4, 14, 18, 2), rrect(9, 2, 6, 4, 1)] },
   curve: { d: ['M3 20C9 20 8 4 21 4', 'M3 20h.01', 'M21 4h.01'] },
   group: { d: ['M3 7V5a2 2 0 0 1 2-2h2', 'M17 3h2a2 2 0 0 1 2 2v2', 'M21 17v2a2 2 0 0 1-2 2h-2', 'M7 21H5a2 2 0 0 1-2-2v-2', 'M7 7h6v6H7z', 'M11 13v4h6v-6h-4'] },
+  layerUp: { d: ['M5 21h14', 'M12 17V4', 'm7 9 5-5 5 5'] },
+  layerDown: { d: ['M5 3h14', 'M12 7v13', 'm7 15 5 5 5-5'] },
   ungroup: { d: ['m12 2 10 5-10 5L2 7z', 'm2 12 4 2', 'm22 12-4 2', 'm2 17 10 5 10-5', 'M9 14.5l6-3'] },
   mainMagnet: { d: ["M3 9h6v6H3z", "M15 9h6v6h-6z", "M9 12h6", "M11 10l2 2-2 2"] },
   autoSnap: { d: ["M12 3v4", "M12 17v4", "M5 8h6v8H5z", "M13 8h6v8h-6z"] },
