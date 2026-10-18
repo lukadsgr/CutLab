@@ -87,8 +87,29 @@ function mergeTr(T, o) {
   if (o.wipe) T.wipe = o.wipe; if (o.iris != null) T.iris = o.iris; if (o.blinds != null) T.blinds = o.blinds;
   return T;
 }
+/* wiggle: ruído suave (desliza entre pontos aleatórios, sem pulos), como o wiggle(freq, amp) do After Effects */
+function smoothNoise(seed, x) {
+  const i = Math.floor(x), f = x - i, u = f * f * f * (f * (f * 6 - 15) + 10);
+  const a = rand(seed * 101.7 + i) * 2 - 1, b = rand(seed * 101.7 + i + 1) * 2 - 1;
+  return a + (b - a) * u;
+}
+/** duas oitavas de ruído, aproximadamente em −1..1 */
+const wiggleAt = (seed, freq, t) => (smoothNoise(seed, t * freq) + 0.5 * smoothNoise(seed + 13, t * freq * 2 + 0.37)) / 1.2;
+const wiggleActive = (p) => p.wiggleOn && (p.wigglePos || p.wiggleRot || p.wiggleScale);
+/** soma o wiggle na transformação. asp = largura/altura do quadro (o tremor de posição é igual nos dois eixos) */
+function addWiggle(T, p, local, asp) {
+  const f = Math.max(0.01, p.wiggleFreq ?? 2), sd = p.wiggleSeed || 1;
+  if (p.wigglePos) {
+    const a = p.wigglePos / 100;   // % da altura do quadro
+    T.x += (wiggleAt(sd, f, local) * a) / asp;
+    T.y += wiggleAt(sd + 31, f, local) * a;
+  }
+  if (p.wiggleRot) T.r += wiggleAt(sd + 57, f, local) * p.wiggleRot;
+  if (p.wiggleScale) T.s *= Math.max(0.01, 1 + (wiggleAt(sd + 83, f, local) * p.wiggleScale) / 100);
+}
+
 /** transformação de animação de um clipe no tempo local */
-function animTransform(c, p, local) {
+function animTransform(c, p, local, asp = 16 / 9) {
   const T = ID_TR();
   const inId = ANIM_ALIAS[p.animIn] || p.animIn;
   if (inId && inId !== 'none' && inId !== 'type') {
@@ -101,6 +122,7 @@ function animTransform(c, p, local) {
     if (rem < d) mergeTr(T, ANIM_MAP[p.animOut]?.fn(clamp(rem / d, 0, 1), local));
   }
   if (p.animCombo && p.animCombo !== 'none') mergeTr(T, COMBO_MAP[p.animCombo]?.fn(local * (p.animComboSpeed ?? 1)));
+  if (wiggleActive(p)) addWiggle(T, p, local, asp);
   return T;
 }
 const animIsId = (T) => !T.x && !T.y && !T.r && T.s === 1 && T.sx === 1 && T.sy === 1 && T.a === 1 && !T.blur && T.bright === 1 && !T.flash && !T.rgb && !T.glitch && !T.wipe && T.iris == null && T.blinds == null;
@@ -261,4 +283,5 @@ function animPixelFx(S, T, t, k) {
   }
 }
 
-Object.assign(BASE_PROPS, { animOut: 'none', animInDur: 0.5, animOutDur: 0.5, animCombo: 'none', animComboSpeed: 1, speedFx: 'none', speedFxAmt: 80, frameBlend: true, frameInterp: 'flow', motionBlur: 45, precise: true });
+Object.assign(BASE_PROPS, { animOut: 'none', animInDur: 0.5, animOutDur: 0.5, animCombo: 'none', animComboSpeed: 1, speedFx: 'none', speedFxAmt: 80, frameBlend: true, frameInterp: 'flow', motionBlur: 45, precise: true,
+  wiggleOn: false, wiggleFreq: 2, wigglePos: 0, wiggleRot: 0, wiggleScale: 0, wiggleSeed: 1, animBlur: 0 });

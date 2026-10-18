@@ -790,7 +790,7 @@ function Inspector({ clip, asset, local, setProps, setClip, kfApi, transition, t
         </>)}
 
         {tab === 'Velocidade' && <SpeedPanel clip={clip} p={p} asset={asset} local={local} setClip={setClip} setProps={setProps} S={S} />}
-        {tab === 'Animação' && <AnimPanel clip={clip} p={p} setProps={setProps} />}
+        {tab === 'Animação' && <AnimPanel clip={clip} p={p} setProps={setProps} S={S} kfNav={kfNav} />}
         {tab?.startsWith('Ajuste:') && (
           <ColorPanel sub={tab.slice(7)} clip={clip} p={p} S={S} setProps={setProps} kfNav={kfNav} api={colorApi} tool={tool} setTool={setTool} />
         )}

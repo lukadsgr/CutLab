@@ -288,11 +288,57 @@ class Engine {
     }
     return boxes;
   }
+  /**
+   * desfoque de movimento pela animação: o clipe é desenhado uma vez num canvas próprio e
+   * repetido ao longo do caminho que ele percorre durante o obturador (keyframes, animações, wiggle).
+   */
   drawClip(ctx, c, a, t, W, H, k, pm = null) {
+    const amt = (c.keyframes?.animBlur ? propAt(c, 'animBlur', t - c.start) : c.props.animBlur) || 0;
+    const span = (clamp(amt, 0, 100) / 100) / (this.outFps || FPS);   // 50 = obturador de 180°
+    if (span <= 0) return this.drawClipOnce(ctx, c, a, t, W, H, k, pm);
+    // caminho do clipe em unidades de altura: amostras da matriz dentro da janela do obturador
+    const U = (tt) => clipMatrixU(c, clamp(tt, c.start, c.start + c.duration - 1e-4), W, H);
+    const U0 = U(t - span / 2), U1 = U(t + span / 2), hw = W / H / 2;
+    let moved = 0;
+    for (const [x, y] of [[-hw, -0.5], [hw, -0.5], [hw, 0.5], [-hw, 0.5]]) {
+      const q0 = U0.transformPoint({ x, y }), q1 = U1.transformPoint({ x, y });
+      moved = Math.max(moved, Math.hypot(q1.x - q0.x, q1.y - q0.y) * H);
+    }
+    if (moved < 1) return this.drawClipOnce(ctx, c, a, t, W, H, k, pm);
+    const Ut = U(t);
+    const det = Ut.a * Ut.d - Ut.b * Ut.c;
+    if (!(Math.abs(det) > 1e-9)) return this.drawClipOnce(ctx, c, a, t, W, H, k, pm);
+    const L = tmpCanvas('mbL', W, H), A = tmpCanvas('mbA', W, H);
+    const lx = L.getContext('2d'), ax = A.getContext('2d');
+    lx.setTransform(1, 0, 0, 1, 0, 0); lx.clearRect(0, 0, W, H);
+    const box = this.drawClipOnce(lx, c, a, t, W, H, k, pm, true);
+    // cada amostra = deslocamento entre a pose no instante dela e a pose desenhada (em px, já com o pai)
+    const n = clamp(Math.ceil(moved / 2.5), 3, 32);
+    const toPx = new DOMMatrix().scale(H), fromPx = new DOMMatrix().scale(1 / H), inv = Ut.inverse();
+    const P = pm ? new DOMMatrix([pm.a, pm.b, pm.c, pm.d, pm.e, pm.f]) : null;
+    ax.setTransform(1, 0, 0, 1, 0, 0); ax.clearRect(0, 0, W, H);
+    ax.globalCompositeOperation = 'lighter';   // soma das amostras = média exata (alfa pré-multiplicado)
+    ax.globalAlpha = 1 / n;
+    for (let i = 0; i < n; i++) {
+      let D = toPx.multiply(U(t - span / 2 + (span * i) / (n - 1))).multiply(inv).multiply(fromPx);
+      if (P) D = P.multiply(D).multiply(P.inverse());
+      ax.setTransform(D.a, D.b, D.c, D.d, D.e, D.f);
+      ax.drawImage(L, 0, 0);
+    }
+    ax.setTransform(1, 0, 0, 1, 0, 0); ax.globalAlpha = 1; ax.globalCompositeOperation = 'source-over';
+    const p = resolveProps(c, clamp(t - c.start, 0, c.duration));
+    ctx.save();
+    ctx.globalCompositeOperation = p.blendOn ? BLEND_OP[p.blend] || 'source-over' : 'source-over';
+    ctx.drawImage(A, 0, 0);
+    ctx.restore();
+    return box;
+  }
+  /** desenha o clipe na pose do instante t. plain: sem modo de mesclagem (vai para um canvas intermediário) */
+  drawClipOnce(ctx, c, a, t, W, H, k, pm = null, plain = false) {
     const local = t - c.start;
     const p = resolveProps(c, local);
     // animações de entrada/saída/combinação
-    const T = animTransform(c, p, local);
+    const T = animTransform(c, p, local, W / H);
     // em vídeo e composto o fade fica na aba Áudio: só mexe no volume, não na imagem
     const fade = c.type === 'video' || c.type === 'compound' ? 1 : fadeFactor(c, t);
     const alpha = ((p.blendOn ? p.opacity : 100) / 100) * fade * T.a;
@@ -303,7 +349,7 @@ class Engine {
     ctx.save();
     if (pm) ctx.transform(pm.a, pm.b, pm.c, pm.d, pm.e, pm.f); // herdado da camada-pai
     ctx.globalAlpha = clamp(alpha, 0, 1);
-    ctx.globalCompositeOperation = p.blendOn ? BLEND_OP[p.blend] || 'source-over' : 'source-over';
+    ctx.globalCompositeOperation = p.blendOn && !plain ? BLEND_OP[p.blend] || 'source-over' : 'source-over';
     ctx.translate(cx, cy);
     ctx.rotate(rot);
     const fx = (p.scaleX ?? 100) / 100, fy = (p.scaleY ?? 100) / 100; // esticar livremente (alças laterais)

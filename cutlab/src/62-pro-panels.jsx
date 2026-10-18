@@ -582,7 +582,33 @@ function AnimThumb({ mode, id }) {
   return <canvas ref={ref} className="fx-thumb" />;
 }
 
-function AnimPanel({ clip, p, setProps }) {
+/** wiggle (tremor suave e aleatório) e desfoque de movimento pela animação */
+function MotionPanel({ clip, p, setProps, S, kfNav }) {
+  const wig = (on) => setProps(clip.id, on && !p.wigglePos && !p.wiggleRot && !p.wiggleScale
+    ? { wiggleOn: true, wigglePos: 2, wiggleRot: 1.5, wiggleSeed: 1 + Math.floor(Math.random() * 997) }
+    : { wiggleOn: on });
+  return (<>
+    <Section title="Wiggle" checked={!!p.wiggleOn} onCheck={wig} kf={kfNav(['wigglePos', 'wiggleRot', 'wiggleScale'])}
+      onReset={() => setProps(clip.id, { wiggleFreq: 2, wigglePos: 2, wiggleRot: 1.5, wiggleScale: 0 })}>
+      <Slider label="Frequência (vezes por segundo)" value={p.wiggleFreq ?? 2} min={0.1} max={15} step={0.1} def={2}
+        onChange={(v) => setProps(clip.id, { wiggleFreq: v }, `p:${clip.id}:wf`)} />
+      {S('Posição (% da altura)', 'wigglePos', 0, 25, 0.1)}
+      {S('Rotação (°)', 'wiggleRot', 0, 45, 0.1)}
+      {S('Escala (%)', 'wiggleScale', 0, 40, 0.1)}
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <button className="btn" onClick={() => setProps(clip.id, { wiggleSeed: 1 + Math.floor(Math.random() * 997) })}><Icon name="reset" size={13} /> Novo sorteio</button>
+        <span className="hint" style={{ margin: 0 }}>Muda o caminho do tremor, mantendo a intensidade.</span>
+      </div>
+      <div className="hint">Use keyframes na intensidade para o tremor crescer ou sumir (um impacto que passa, uma câmera na mão que acalma).</div>
+    </Section>
+    <Section title="Desfoque de movimento" checked={(p.animBlur || 0) > 0} onCheck={(v) => setProps(clip.id, { animBlur: v ? 50 : 0 })}>
+      <Slider label="Obturador" value={p.animBlur || 0} min={0} max={100} def={50}
+        onChange={(v) => setProps(clip.id, { animBlur: v }, `p:${clip.id}:ab`)} />
+      <div className="hint">Borra a camada enquanto ela se move, gira ou muda de tamanho (keyframes, animações e wiggle), como uma câmera de verdade. 50 equivale ao obturador de 180° do cinema.</div>
+    </Section>
+  </>);
+}
+function AnimPanel({ clip, p, setProps, S, kfNav }) {
   const [mode, setMode] = useState('Entrada');
   const [cat, setCat] = useState('Em alta');
   const [q, setQ] = useState('');
@@ -601,8 +627,9 @@ function AnimPanel({ clip, p, setProps }) {
   const maxD = Math.max(0.1, Math.min(5, clip.duration));
   return (
     <div className="anim-panel">
-      <SegTabs items={['Entrada', 'Saída', 'Combinação']} value={mode} onChange={(v) => vt(() => setMode(v))}
-        dots={{ Entrada: p.animIn && p.animIn !== 'none', Saída: p.animOut !== 'none', Combinação: p.animCombo !== 'none' }} />
+      <SegTabs items={['Entrada', 'Saída', 'Combinação', 'Movimento']} value={mode} onChange={(v) => vt(() => setMode(v))}
+        dots={{ Entrada: p.animIn && p.animIn !== 'none', Saída: p.animOut !== 'none', Combinação: p.animCombo !== 'none', Movimento: !!(wiggleActive(p) || p.animBlur > 0) }} />
+      {mode === 'Movimento' ? <div style={{ marginTop: 12 }}><MotionPanel clip={clip} p={p} setProps={setProps} S={S} kfNav={kfNav} /></div> : (<>
       <div className="search" style={{ marginTop: 12 }}>
         <Icon name="search" size={14} />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar animações" />
@@ -628,6 +655,7 @@ function AnimPanel({ clip, p, setProps }) {
           {mode === 'Combinação' && <Slider label="Velocidade" value={p.animComboSpeed} min={0.25} max={3} step={0.05} onChange={(v) => setProps(clip.id, { animComboSpeed: v }, `p:${clip.id}:acs`)} />}
         </div>
       )}
+      </>)}
     </div>
   );
 }

@@ -38,7 +38,7 @@ const activeInRow = (clips, rk, t) => {
 function clipMatrixU(c, t, W, H) {
   const local = clamp(t - c.start, 0, c.duration);
   const p = resolveProps(c, local);
-  const T = animTransform(c, p, local);
+  const T = animTransform(c, p, local, W / H);
   const s = ((p.scale ?? 100) / 100) * T.s;
   const cx = W / 2 + (p.x / 100) * (W / 2) + T.x * W;
   const cy = H / 2 + (p.y / 100) * (H / 2) + T.y * H;

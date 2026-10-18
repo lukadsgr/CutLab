@@ -11,6 +11,7 @@ const CURVE_PRESETS = [
   { id: 'out', name: 'Desacelerar', bz: [0.33, 1, 0.68, 1] },
   { id: 'overshoot', name: 'Passar do ponto', bz: [0.34, 1.56, 0.64, 1] },
   { id: 'anticipate', name: 'Antecipar', bz: [0.36, -0.56, 0.64, 1] },
+  { id: 'spring', name: 'Mola', bz: null },
   { id: 'hold', name: 'Congelar', bz: null },
 ];
 /** alças Bézier equivalentes às curvas com nome (para mostrar e começar a editar) */
@@ -39,6 +40,7 @@ function KeyframeCurves({ clip, local, onChange, onSeek, onClose }) {
     setW(el.clientWidth);
     return () => ro.disconnect();
   }, []);
+  const springKey = useRef('');   // um passo de desfazer por arraste do controle da mola
   const drag = useRef(null);   // { range } fixo durante o arraste (o eixo não "foge" do mouse)
 
   if (!prop) return null;
@@ -51,7 +53,7 @@ function KeyframeCurves({ clip, local, onChange, onSeek, onClose }) {
     for (let i = 0; i <= 160; i++) { const v = kfValueAt(list, (T1 * i) / 160); lo = Math.min(lo, v); hi = Math.max(hi, v); }
     for (const f of list) { lo = Math.min(lo, f.v); hi = Math.max(hi, f.v); }
     // as alças também precisam caber (dá para puxá-las de volta)
-    list.forEach((f, j) => { const n = list[j + 1]; if (!n || f.ease === 'hold') return; const z = bzOf(f), dd = n.v - f.v; for (const y of [z[1], z[3]]) { const v = f.v + y * dd; lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+    list.forEach((f, j) => { const n = list[j + 1]; if (!n || f.ease === 'hold' || f.ease === 'spring') return; const z = bzOf(f), dd = n.v - f.v; for (const y of [z[1], z[3]]) { const v = f.v + y * dd; lo = Math.min(lo, v); hi = Math.max(hi, v); } });
     if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
     const pad = (hi - lo) * 0.12;
     range = [lo - pad, hi + pad];
@@ -65,7 +67,7 @@ function KeyframeCurves({ clip, local, onChange, onSeek, onClose }) {
   for (let i = 0; i <= 240; i++) { const t = (T1 * i) / 240; d += `${i ? 'L' : 'M'}${X(t).toFixed(1)} ${Y(kfValueAt(list, t)).toFixed(1)}`; }
 
   const a = list[seg], b = list[seg + 1];
-  const showHandles = a && b && a.ease !== 'hold';
+  const showHandles = a && b && a.ease !== 'hold' && a.ease !== 'spring';
   const bz = a ? bzOf(a) : null;
   const dv = b ? b.v - a.v : 0;
   const dvShow = Math.abs(dv) > 1e-9 ? dv : (vmax - vmin) * 0.3;   // valor igual nos dois pontos: alças só para a forma
@@ -110,6 +112,11 @@ function KeyframeCurves({ clip, local, onChange, onSeek, onClose }) {
   const applyPreset = (p) => {
     const set = (f) => (p.id === 'hold' || EASES[p.id] ? { ...f, ease: p.id, bz: undefined } : { ...f, ease: 'bezier', bz: p.bz });
     commit(list.map((f, j) => (j < list.length - 1 && (all || j === seg) ? set(f) : f)));
+  };
+  // elasticidade/amortecimento da mola (no trecho escolhido ou em todos os trechos com mola)
+  const setSpring = (i, v) => {
+    if (!springKey.current) springKey.current = 'spring:' + uid();
+    commit(list.map((f, j) => (j < list.length - 1 && f.ease === 'spring' && (all || j === seg) ? { ...f, sp: Object.assign([...(f.sp || SPRING_DEF)], { [i]: v }) } : f)), springKey.current);
   };
   // grade: ~5 linhas de valor e marcas de tempo
   const vStep = niceStep((vmax - vmin) / 5), tStep = niceStep(T1 / 8);
@@ -157,11 +164,15 @@ function KeyframeCurves({ clip, local, onChange, onSeek, onClose }) {
         {list.length < 2 ? <span className="hint">Esta propriedade tem só um keyframe — adicione outro para ter uma curva.</span> : (<>
           <span className="ce-seg-lbl">Trecho {seg + 1}/{list.length - 1}</span>
           {CURVE_PRESETS.map((p) => (
-            <button key={p.id} className={`chip ${activePreset === p.id ? 'on' : ''}`} onClick={() => applyPreset(p)} title={p.bz ? `cubic-bezier(${p.bz.join(', ')})` : 'Mantém o valor até o próximo keyframe'}>
-              <EaseIcon bz={p.bz} /> {p.name}
+            <button key={p.id} className={`chip ${activePreset === p.id ? 'on' : ''}`} onClick={() => applyPreset(p)} title={p.bz ? `cubic-bezier(${p.bz.join(', ')})` : p.id === 'spring' ? 'Passa do ponto e volta balançando, como uma mola' : 'Mantém o valor até o próximo keyframe'}>
+              <EaseIcon bz={p.bz} fn={p.id === 'spring' ? springFn(a?.ease === 'spring' ? a.sp : undefined) : null} /> {p.name}
             </button>
           ))}
           <label className="check-row" style={{ margin: 0 }}><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> todos os trechos</label>
+          {a?.ease === 'spring' && (<>
+            <SpringKnob label="Elasticidade" value={(a.sp || SPRING_DEF)[0]} onChange={(v) => setSpring(0, v)} onDone={() => { springKey.current = ''; }} />
+            <SpringKnob label="Amortecimento" value={(a.sp || SPRING_DEF)[1]} onChange={(v) => setSpring(1, v)} onDone={() => { springKey.current = ''; }} />
+          </>)}
           {a?.ease === 'bezier' && <span className="kbd">cubic-bezier({a.bz.join(', ')})</span>}
         </>)}
       </div>
@@ -174,9 +185,19 @@ function niceStep(raw) {
   const m = raw / e;
   return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * e;
 }
-function EaseIcon({ bz }) {
+/** controle compacto da mola no rodapé do editor de curvas */
+function SpringKnob({ label, value, onChange, onDone }) {
+  return (
+    <label className="check-row" style={{ margin: 0, gap: 6 }} title={label}>
+      {label}
+      <input type="range" min={0} max={100} value={value} onChange={(e) => onChange(+e.target.value)} onPointerUp={onDone} onKeyUp={onDone} style={{ width: 90 }} />
+      <span className="kbd">{value}</span>
+    </label>
+  );
+}
+function EaseIcon({ bz, fn }) {
   let d = 'M1 13';
-  if (!bz) d = 'M1 13H13V1';
-  else { const f = bezierFn(bz); for (let i = 1; i <= 12; i++) d += ` L${1 + i} ${13 - f(i / 12) * 12}`; }
+  if (!bz && !fn) d = 'M1 13H13V1';
+  else { const f = fn || bezierFn(bz); for (let i = 1; i <= 12; i++) d += ` L${1 + i} ${13 - f(i / 12) * 12}`; }
   return <svg width="14" height="14" className="mini-curve"><path d={d} /></svg>;
 }

@@ -3,7 +3,8 @@
    clip.keyframes = { [prop]: [{ t, v, ease }] }  — t é o tempo local do clipe (s)
    ===================================================================== */
 const KF_PROPS = ['x', 'y', 'scale', 'scaleX', 'scaleY', 'rotation', 'opacity', 'volume', 'brightness', 'contrast', 'saturation', 'hue', 'sepia', 'blur', 'temperature', 'vignette', 'intensity', 'fontSize', 'shadowOpacity', 'shadowBlur', 'shadowDist', 'shadowAngle', 'glowStrength', 'glowSpread', 'bgOpacity', 'bgRadius', 'bgPadX', 'bgPadY', 'stroke',
-  'maskX', 'maskY', 'maskW', 'maskH', 'maskRot', 'maskFeather', 'maskRound', 'chromaStrength', 'chromaSoft', 'chromaSpill', 'smooth', 'sharpen', 'bloom'];
+  'maskX', 'maskY', 'maskW', 'maskH', 'maskRot', 'maskFeather', 'maskRound', 'chromaStrength', 'chromaSoft', 'chromaSpill', 'smooth', 'sharpen', 'bloom',
+  'wigglePos', 'wiggleRot', 'wiggleScale'];
 const KF_EPS = FRAME * 0.5;
 const EASES = {
   linear: { name: 'Linear', fn: (p) => p },
@@ -11,7 +12,25 @@ const EASES = {
   in: { name: 'Acelerar', fn: (p) => p * p * p },
   out: { name: 'Desacelerar', fn: (p) => 1 - Math.pow(1 - p, 3) },
   hold: { name: 'Congelar', fn: () => 0 },
+  spring: { name: 'Mola', fn: (p) => springFn(SPRING_DEF)(p) },
 };
+
+/* mola: passa do ponto e volta balançando até parar. sp = [elasticidade, amortecimento], 0..100 */
+const SPRING_DEF = [50, 50];
+const _spCache = new Map();
+function springFn(sp = SPRING_DEF) {
+  const key = sp.join(',');
+  let f = _spCache.get(key);
+  if (f) return f;
+  const w = Math.PI * (1 + (clamp(sp[0], 0, 100) / 100) * 8);   // de 1 a 9 meias oscilações
+  const k = 1.5 + (clamp(sp[1], 0, 100) / 100) * 10.5;           // quanto a oscilação morre
+  const ek = Math.exp(-k);
+  // envelope e^(-k·p) − p·e^(-k): começa em 1 e chega a 0 exatamente no próximo keyframe
+  f = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - (Math.exp(-k * p) - p * ek) * Math.cos(w * p));
+  if (_spCache.size > 100) _spCache.clear();
+  _spCache.set(key, f);
+  return f;
+}
 
 /* curvas livres (editor de curvas): ease 'bezier' com bz = [x1, y1, x2, y2], como cubic-bezier() do CSS */
 const _bzCache = new Map();
@@ -39,7 +58,7 @@ function bezierFn(bz) {
   return f;
 }
 /** curva de um keyframe como função 0..1 → 0..1 */
-const easeFn = (f) => (f.ease === 'bezier' && f.bz ? bezierFn(f.bz) : (EASES[f.ease] || EASES.linear).fn);
+const easeFn = (f) => (f.ease === 'bezier' && f.bz ? bezierFn(f.bz) : f.ease === 'spring' ? springFn(f.sp) : (EASES[f.ease] || EASES.linear).fn);
 
 function kfValueAt(list, local) {
   if (local <= list[0].t) return list[0].v;
@@ -150,7 +169,7 @@ function splitKf(c, s) {
     const right = l.filter((f) => f.t > s + KF_EPS).map((f) => ({ ...f, t: f.t - s }));
     L[k] = [...left, { t: s, v, ease: 'smooth' }];
     const prev = l.filter((f) => f.t <= s).pop();   // a curva do trecho cortado continua na metade direita
-    R[k] = [{ t: 0, v, ease: prev?.ease || 'smooth', ...(prev?.bz ? { bz: prev.bz } : {}) }, ...right];
+    R[k] = [{ t: 0, v, ease: prev?.ease || 'smooth', ...(prev?.bz ? { bz: prev.bz } : {}), ...(prev?.sp ? { sp: prev.sp } : {}) }, ...right];
   }
   return [L, R];
 }
