@@ -1,6 +1,6 @@
 // Monta desktop/app/: a mesma página do site, mas com React e o gerador de MP4 locais
 // e o JSX já compilado (abre mais rápido e sem depender da internet para iniciar).
-import { mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, copyFileSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { sources, page } from '../cutlab/build.mjs';
 
@@ -25,3 +25,15 @@ const { code } = Babel.transform(local, { presets: ['react'], sourceType: 'scrip
 const html = page({ css, app: code, compiled: true, scripts: ['vendor/react.production.min.js', 'vendor/react-dom.production.min.js'] });
 writeFileSync(new URL('./index.html', out), html);
 console.log('desktop/app/index.html gerado (' + (html.length / 1024).toFixed(0) + ' KB)');
+
+// notas da versão no GitHub (o programa instalado mostra no aviso de atualização): as entradas das Novidades
+// desde a versão anterior — do topo até a primeira entrada marcada com `desktop` de outra versão
+const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
+const src = readFileSync(new URL('../cutlab/src/79-whatsnew.jsx', import.meta.url), 'utf8');
+const CHANGELOG = new Function(src.match(/const CHANGELOG = (\[[\s\S]*?\n\]);/)[1].replace(/^/, 'return '))();
+const since = [];
+for (const v of CHANGELOG) { if (v.desktop && v.desktop !== version) break; since.push(v); }
+const LABEL = { novo: 'Novo', melhoria: 'Melhoria', correção: 'Correção', removido: 'Removido' };
+const notes = since.map((v) => `### ${v.title}\n\n${v.items.map(([k, t]) => `- **${LABEL[k] ?? k}:** ${t}`).join('\n')}`).join('\n\n');
+writeFileSync(new URL('./build/release-notes.md', import.meta.url), notes + '\n');
+console.log(`notas da versão ${version}: ${since.length} entrada(s) das Novidades`);

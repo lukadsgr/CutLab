@@ -48,7 +48,12 @@ autoUpdater.on('error', (err) => {
 function notesText(n) {
   if (!n) return '';
   const s = Array.isArray(n) ? n.map((x) => x.note || '').join('\n') : String(n);
-  return s.replace(/<[^>]+>/g, '').trim();   // o GitHub entrega as notas em HTML
+  // o GitHub entrega as notas em HTML (com entidades); linhas de assinatura de commit não interessam ao usuário
+  const ent = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' };
+  return s.replace(/<\/(p|li|h\d)>|<br\s*\/?>/gi, '\n').replace(/<li>/gi, '• ').replace(/<[^>]+>/g, '')
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, k) => ent[k])
+    .split('\n').filter((l) => !/^\s*(Co-Authored-By|Signed-off-by):/i.test(l)).join('\n')
+    .replace(/\n{3,}/g, '\n\n').trim();
 }
 const check = () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); else send({ state: 'dev' }); };
 

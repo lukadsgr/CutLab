@@ -5,10 +5,12 @@
    - Tutorial: um passeio guiado pelas partes principais do CutLab, destacando cada
      uma na tela. Abre sozinho na primeira visita; Menu › Tutorial rápido reabre.
    AO PUBLICAR: acrescente uma entrada no topo de CHANGELOG (id novo = aviso novo).
+   AO LANÇAR O PROGRAMA (tag v*): marque a entrada mais nova com desktop: 'x.y.z'. As notas da versão
+   no GitHub (que o programa mostra no aviso de atualização) são as entradas desde a marca anterior.
    ===================================================================== */
 const CHANGELOG = [
   {
-    id: '2026-10-18.3', date: '18/10/2026', title: 'Camadas em ordem, agulha com cabeça e novidades',
+    id: '2026-10-18.3', date: '18/10/2026', desktop: '0.2.0', title: 'Camadas em ordem, agulha com cabeça e novidades',
     items: [
       ['novo', 'Arraste o cabeçalho de uma camada para mudar a ordem. Acima da Principal ficam sobreposições, textos, legendas e efeitos; abaixo, o Áudio. A Principal não se move.'],
       ['novo', 'Um efeito ou camada de ajuste vale para tudo o que está abaixo dele: coloque-o entre as camadas para afetar só as de baixo.'],
@@ -29,7 +31,7 @@ const CHANGELOG = [
     ],
   },
   {
-    id: '2026-10-18.1', date: '18/10/2026', title: 'Programa para Windows e reprodução mais leve',
+    id: '2026-10-18.1', date: '18/10/2026', desktop: '0.1.0', title: 'Programa para Windows e reprodução mais leve',
     items: [
       ['novo', 'CutLab para Windows (.exe), com aviso de atualização dentro do programa.'],
       ['novo', 'Proxies de prévia para vídeos pesados, gerados só dos trechos usados.'],

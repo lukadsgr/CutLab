@@ -15,3 +15,6 @@ desktop.ini
 .DS_Store
 .vscode/
 *.log
+
+# notas da versão geradas por desktop/build.mjs a partir das Novidades
+desktop/build/release-notes.md
