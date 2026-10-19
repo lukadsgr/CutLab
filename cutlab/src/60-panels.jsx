@@ -30,18 +30,7 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
             {item('Importar mídia…', menu.importMedia, 'Ctrl+I')}
             {item('Exportar…', onExport, 'Ctrl+E', !canExport)}
             <div className="menu-sep" />
-            {item('Desfazer', hist.undo, 'Ctrl+Z', !hist.canUndo)}
-            {item('Refazer', hist.redo, 'Ctrl+Y', !hist.canRedo)}
-            {item('Recortar', menu.cut, 'Ctrl+X', !menu.hasSelection)}
-            {item('Copiar', menu.copy, 'Ctrl+C', !menu.hasSelection)}
-            {item('Colar no cursor', menu.paste, 'Ctrl+V')}
-            <div className="menu-sep" />
-            {item('Agrupar', menu.group, 'Ctrl+G', !menu.canCompound)}
-            {item('Desagrupar', menu.ungroupClips, 'Ctrl+Shift+G', !menu.canUngroupClips)}
-            {item('Criar clipe composto', menu.compound, 'Alt+G', !menu.canCompound)}
-            {item('Desfazer clipe composto', menu.ungroup, 'Alt+Shift+G', !menu.canUngroup)}
             {item('Remover todos os marcadores', menu.clearMarkers, null, !menu.hasMarkers)}
-            {item('Selecionar nada', menu.deselect, 'Esc')}
             <div className="menu-sep" />
             {item(menu.diagOn ? 'Fechar diagnóstico de reprodução' : 'Diagnóstico de reprodução', menu.diag, 'Ctrl+Shift+D')}
             {item('Atalhos de teclado', menu.shortcuts)}
@@ -50,10 +39,12 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
           </div>
         )}
       </div>
-      <div className="spacer" />
-      <input className="proj-name" value={name} onChange={(e) => setName(e.target.value)} spellCheck={false} aria-label="Nome do projeto" />
-      {saveState !== 'idle' && <span className={`save-state ${saveState}`} title={saveState === 'error' ? 'O navegador recusou o salvamento (espaço cheio?). Use Menu › Salvar projeto.' : 'Salvo automaticamente neste navegador'}>
-        {saveState === 'saving' ? 'Salvando…' : saveState === 'saved' ? 'Salvo' : 'Não salvo'}</span>}
+      {/* nome centrado na janela; o aviso de salvamento fica ao lado, sem empurrá-lo */}
+      <div className="proj-center">
+        <input className="proj-name" value={name} onChange={(e) => setName(e.target.value)} spellCheck={false} aria-label="Nome do projeto" />
+        {saveState !== 'idle' && <span className={`save-state ${saveState}`} title={saveState === 'error' ? 'O navegador recusou o salvamento (espaço cheio?). Use Menu › Salvar projeto.' : 'Salvo automaticamente neste navegador'}>
+          {saveState === 'saving' ? 'Salvando…' : saveState === 'saved' ? 'Salvo' : 'Não salvo'}</span>}
+      </div>
       <div className="spacer" />
       <UpdateButton />
       <button className="icon-btn" title="Desfazer (Ctrl+Z)" disabled={!hist.canUndo} onClick={hist.undo}><Icon name="undo" /></button>
@@ -918,9 +909,15 @@ const SHORTCUTS = [
   ['Excluir clipe', 'Delete'], ['Duplicar clipe', 'Ctrl + D'], ['Desfazer / refazer', 'Ctrl + Z / Y'],
   ['Keyframe no clipe selecionado', 'K'], ['Marcador', 'M'], ['Quadro anterior / próximo', '← / →'],
   ['Pular 1 segundo', 'Shift + ← / →'], ['Importar mídia', 'Ctrl + I'], ['Exportar', 'Ctrl + E'], ['Salvar projeto', 'Ctrl + S'], ['Abrir projeto', 'Ctrl + O'],
-  ['Lâmina: cortar com o mouse', 'B (Shift+clique corta tudo)'], ['Voltar à seleção', 'V / Esc'], ['Copiar / recortar / colar clipe', 'Ctrl + C / X / V'], ['Congelar quadro', 'F'],
+  ['Lâmina: cortar com o mouse', 'B (Shift+clique corta tudo)'], ['Voltar à seleção', 'V / Esc'], ['Selecionar nada', 'Esc'],
+  ['Copiar / recortar clipe', 'Ctrl + C / X'], ['Colar no cursor', 'Ctrl + V'], ['Congelar quadro', 'F'],
   ['Editor de curvas dos keyframes', 'G'], ['Selecionar com caixa', 'Arrastar no vazio da faixa (Ctrl soma)'],
-  ['Selecionar vários clipes', 'Ctrl + clique'], ['Criar / desfazer clipe composto', 'Ctrl + G / Ctrl + Shift + G'], ['Editar clipe composto', 'Clique duplo · Esc volta'], ['Criar ou remover marcador no cursor', 'M · botão direito no marcador remove'], ['Zoom na linha do tempo', 'Ctrl + roda'],
+  ['Selecionar vários clipes', 'Ctrl + clique'], ['Agrupar / desagrupar clipes', 'Ctrl + G / Ctrl + Shift + G'],
+  ['Criar / desfazer clipe composto', 'Alt + G / Alt + Shift + G'], ['Editar clipe composto', 'Clique duplo · Esc volta'],
+  ['Camada acima / abaixo', 'Ctrl + ] / ['], ['Camada para a frente / o fundo', 'Ctrl + Shift + ] / ['],
+  ['Criar ou remover marcador no cursor', 'M · botão direito no marcador remove'], ['Zoom na linha do tempo', 'Ctrl + roda'],
+  ['Mostrar / esconder réguas', 'Shift + R'], ['Mão (arrastar a prévia)', 'H'], ['Zoom da prévia', 'Ctrl + + / − · Ctrl + 0 ajusta'],
+  ['Início / fim do projeto', 'Home / End'], ['Diagnóstico de reprodução', 'Ctrl + Shift + D'],
 ];
 
 function ProjectPanel({ name, ratio, setRatio, duration, clipCount, assetCount }) {
@@ -934,14 +931,6 @@ function ProjectPanel({ name, ratio, setRatio, duration, clipCount, assetCount }
         <div className="stat"><span>Duração</span><b>{fmt(duration)}</b></div>
         <div className="stat"><span>Clipes</span><b>{clipCount}</b></div>
         <div className="stat"><span>Itens na biblioteca</span><b>{assetCount}</b></div>
-        <div className="section-label">Proporção da tela</div>
-        <div className="anim-grid">
-          {Object.keys(RATIOS).map((r) => <button key={r} className={`anim ${r === ratio ? 'on' : ''}`} onClick={() => setRatio(r)}>{r}</button>)}
-        </div>
-        <div className="shortcuts">
-          <div className="section-label">Atalhos</div>
-          {SHORTCUTS.slice(0, 8).map(([a, k]) => <div key={a} className="shortcut"><span>{a}</span><kbd>{k}</kbd></div>)}
-        </div>
       </div>
     </aside>
   );

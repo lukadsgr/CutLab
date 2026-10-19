@@ -1662,12 +1662,18 @@ function App() {
   useEffect(() => {
     const down = (e) => {
       const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (isTypingTarget(e.target)) {
+        // Enter/Esc num campo de linha única encerram a edição: o Espaço volta a tocar o vídeo
+        if (tag === 'INPUT' && (e.key === 'Enter' || e.key === 'Escape')) e.target.blur();
+        return;
+      }
       if (document.querySelector('.modal-back')) return;   // janela aberta: os atalhos ficam com ela
+      // Espaço toca/pausa mesmo com um botão, slider ou lista focados; segurar a tecla não fica alternando
+      if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { releaseFocus(); togglePlay(); } return; }
+      if (tag === 'INPUT' || tag === 'SELECT') return;     // sliders e listas usam as setas
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
-      else if (e.shiftKey && !mod && key === 'r') { e.preventDefault(); setRulers((v) => !v); }
+      if (e.shiftKey && !mod && key === 'r') { e.preventDefault(); setRulers((v) => !v); }
       else if (live.current.tool === 'pen' && (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete')) {
         e.preventDefault();
         const c = live.current.clips.find((x) => x.id === live.current.selectedId);
@@ -1714,8 +1720,15 @@ function App() {
         else if (pathRef.current.length) exitTo(pathRef.current.length - 1);
       }
     };
+    // clicar fora de um campo de texto encerra a edição, mesmo onde o clique não muda o foco
+    // (linha do tempo, prévia): sem isso o Espaço continuaria preso no campo
+    const press = (e) => {
+      const a = document.activeElement;
+      if (isTypingTarget(a) && !a.contains(e.target) && !isTypingTarget(e.target)) a.blur();
+    };
     window.addEventListener('keydown', down);
-    return () => window.removeEventListener('keydown', down);
+    window.addEventListener('pointerdown', press, true);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('pointerdown', press, true); };
   }, [togglePlay, remove, split, duplicate, trimSide, keyframeHere, addMarker, openExport, saveProject, openProject, copyClip, cutClip, pasteClip, freezeFrame, createCompound, ungroupCompound, groupClips, ungroupClips, layerOrder, exitTo, hist.undo, hist.redo, seek, select]);
 
   /* ---------- soltar arquivos em qualquer lugar ---------- */

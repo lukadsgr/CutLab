@@ -101,6 +101,10 @@ function LeftPanel(props) {
   // indicador deslizante da aba ativa
   const [ind, setInd] = useState(null);
   useLayoutEffect(() => { const el = tabsRef.current?.querySelector('.top-tab.active'); if (el) setInd({ x: el.offsetLeft, w: el.offsetWidth }); }, [tab]);
+  // setas de rolagem das abas: cada uma só fica ativa se há abas escondidas daquele lado
+  const [tabsEdge, setTabsEdge] = useState({ l: false, r: true });
+  const syncTabsEdge = () => { const el = tabsRef.current; if (el) setTabsEdge({ l: el.scrollLeft > 2, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 }); };
+  useEffect(() => { syncTabsEdge(); const ro = new ResizeObserver(syncTabsEdge); ro.observe(tabsRef.current); return () => ro.disconnect(); }, []);
 
   /* lista filtrada por categoria/favoritos/busca */
   const pick = (items, key, catOf) => items.filter((it) => {
@@ -349,7 +353,8 @@ function LeftPanel(props) {
   return (
     <aside className="left">
       <div className="top-tabs-wrap">
-        <nav className="top-tabs" ref={tabsRef}>
+        <button className="tabs-scroll" title="Anteriores" disabled={!tabsEdge.l} onClick={() => tabsRef.current.scrollBy({ left: -220, behavior: 'smooth' })}><Icon name="chevronL" size={14} /></button>
+        <nav className="top-tabs" ref={tabsRef} onScroll={syncTabsEdge}>
           <span className="top-ind" style={ind ? { transform: `translateX(${ind.x}px)`, width: ind.w } : { opacity: 0 }} />
           {TOP_TABS.map((t) => (
             <button key={t.id} className={`top-tab ${tab === t.id ? 'active' : ''}`} onClick={() => switchTab(t.id)}>
@@ -357,7 +362,7 @@ function LeftPanel(props) {
             </button>
           ))}
         </nav>
-        <button className="tabs-scroll" title="Mais" onClick={() => tabsRef.current.scrollBy({ left: 220, behavior: 'smooth' })}><Icon name="chevronR" size={14} /></button>
+        <button className="tabs-scroll" title="Mais" disabled={!tabsEdge.r} onClick={() => tabsRef.current.scrollBy({ left: 220, behavior: 'smooth' })}><Icon name="chevronR" size={14} /></button>
       </div>
       <div className="left-body">
         <nav className="sidebar">

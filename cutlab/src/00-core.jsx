@@ -16,6 +16,21 @@ function ClockText({ format, className }) {
   return <span ref={ref} className={className}>{format(playClock.t)}</span>;
 }
 
+/** o elemento recebe texto digitado? (campo de texto, número, área de texto, conteúdo editável).
+ *  Controles como sliders, caixas de seleção e botões não contam: neles o Espaço ainda toca o vídeo */
+const TEXT_INPUTS = new Set(['', 'text', 'search', 'number', 'email', 'url', 'password', 'tel']);
+function isTypingTarget(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+  return el.tagName === 'INPUT' && TEXT_INPUTS.has((el.getAttribute('type') || '').toLowerCase());
+}
+/** tira o foco do controle atual e limpa a seleção de texto (o Espaço não "clica" no botão focado) */
+function releaseFocus() {
+  const a = document.activeElement;
+  if (a && a !== document.body) a.blur();
+  window.getSelection?.()?.removeAllRanges();
+}
+
 /** troca de estado com View Transitions (quando o navegador suporta) */
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 function vt(fn) {

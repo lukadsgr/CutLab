@@ -157,8 +157,9 @@ function TransitionEditor({ initial, applyTo, onSave, onClose }) {
   // Espaço toca/pausa, Delete apaga o keyframe selecionado, Esc fecha
   const keysRef = useRef();
   keysRef.current = (e) => {
-    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
-    if (e.code === 'Space') { e.preventDefault(); setPlaying((p) => !p); }
+    if (isTypingTarget(e.target)) return;
+    if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { releaseFocus(); setPlaying((p) => !p); } return; }
+    if (['INPUT', 'SELECT'].includes(e.target.tagName)) return;
     else if ((e.key === 'Delete' || e.key === 'Backspace') && selKey) { e.preventDefault(); delKey(sel.g, sel.prop, sel.i); }
     else if (e.key === 'Escape') close();
   };

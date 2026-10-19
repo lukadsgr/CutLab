@@ -501,8 +501,10 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.35); box-sha
 /* ---------- réguas e guias ---------- */
 .stage.with-rulers { padding: calc(16px + 20px) 16px 16px calc(16px + 20px); }
 .ruler { position: absolute; z-index: 8; background: rgba(12,12,15,0.92); backdrop-filter: blur(6px); cursor: copy; }
-.ruler.top { top: 0; left: 20px; right: 0; height: 20px; border-bottom: 1px solid var(--border); cursor: row-resize; }
-.ruler.left { left: 0; top: 20px; bottom: 0; width: 20px; border-right: 1px solid var(--border); cursor: col-resize; }
+/* tamanho explícito nos dois eixos e linha divisória por sombra: com borda o canvas encolhia ~5%
+   (mantendo a proporção do bitmap) e as marcas deixavam de bater com o quadro */
+.ruler.top { top: 0; left: 20px; width: calc(100% - 20px); height: 20px; box-shadow: 0 1px 0 var(--border); cursor: row-resize; }
+.ruler.left { left: 0; top: 20px; width: 20px; height: calc(100% - 20px); box-shadow: 1px 0 0 var(--border); cursor: col-resize; }
 .ruler-corner { position: absolute; z-index: 9; left: 0; top: 0; width: 20px; height: 20px; display: grid; place-items: center; background: rgba(12,12,15,0.95); border: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 0; }
 .ruler-corner:hover:not(:disabled) { color: var(--accent); }
 .ruler-corner:disabled { opacity: 0.35; cursor: default; }
