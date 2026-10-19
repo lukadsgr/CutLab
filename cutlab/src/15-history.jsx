@@ -1,13 +1,19 @@
 /* =====================================================================
    Histórico (desfazer/refazer) com agrupamento de gestos
    ===================================================================== */
+/** mudanças com a mesma chave viram um passo só enquanto o gesto continua; uma pausa maior que esta
+ *  começa um passo novo (ex.: mexer no mesmo slider em dois keyframes diferentes = dois passos) */
+const GESTURE_GAP = 700;
+/** chaves de um gesto só ('drag:' + uid()) nunca expiram: o arraste pode parar um pouco antes de soltar */
+const oneShotKey = (k) => /^[a-z]+:[a-z0-9]{8}$/.test(k);
 function useHistory(initial) {
-  const [h, setH] = useState({ past: [], present: initial, future: [], key: null });
+  const [h, setH] = useState({ past: [], present: initial, future: [], key: null, at: 0 });
   const set = useCallback((updater, key = null) => setH((s) => {
     const next = typeof updater === 'function' ? updater(s.present) : updater;
     if (next === s.present) return s;
-    if (key && key === s.key) return { ...s, present: next };
-    return { past: [...s.past.slice(-99), s.present], present: next, future: [], key };
+    const now = performance.now();
+    if (key && key === s.key && (oneShotKey(key) || now - s.at < GESTURE_GAP)) return { ...s, present: next, at: now };
+    return { past: [...s.past.slice(-99), s.present], present: next, future: [], key, at: now };
   }), []);
   const undo = useCallback(() => setH((s) => s.past.length
     ? { past: s.past.slice(0, -1), present: s.past[s.past.length - 1], future: [s.present, ...s.future], key: null } : s), []);

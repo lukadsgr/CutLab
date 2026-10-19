@@ -10,6 +10,18 @@
    ===================================================================== */
 const CHANGELOG = [
   {
+    id: '2026-10-18.5', date: '18/10/2026', title: 'Editor de keyframes e Ctrl+Z confiável',
+    items: [
+      ['novo', 'Editor de keyframes (tecla G ou o botão de curva na barra da linha do tempo): uma linha por propriedade animada, com seleção múltipla, caixa de seleção, arrastar, clique duplo para criar e Animar propriedade.'],
+      ['novo', 'Interpolação como no After Effects: Easy Ease (F9), suavizar entrada (Shift+F9), suavizar saída (Ctrl+Shift+F9), Linear, Congelar e Mola. O desenho do keyframe mostra a curva de cada lado.'],
+      ['novo', 'Copiar e colar keyframes (Ctrl+C / Ctrl+V no cursor, até entre clipes), Ctrl+A seleciona todos, Alt+←/→ empurra um quadro, e campos para digitar tempo e valor exatos.'],
+      ['novo', 'Modo Gráfico no mesmo editor: curva de valor × tempo com alças Bézier.'],
+      ['melhoria', 'Os keyframes aparecem sempre nos clipes da linha do tempo, não só no clipe selecionado. Clique duplo num deles abre o editor.'],
+      ['correção', 'Ctrl+Z não funcionava depois de mexer num slider (o foco ficava nele). Ajustes no mesmo controle em momentos diferentes viravam um passo só; agora cada um é desfeito separadamente.'],
+      ['correção', 'Ocultar ou silenciar a camada 1 de uma faixa (ex.: Sobreposição 1) ocultava/silenciava todas as camadas daquela faixa.'],
+    ],
+  },
+  {
     id: '2026-10-18.4', date: '18/10/2026', title: 'Excluir mídias da biblioteca',
     items: [
       ['correção', 'O selo PROXY cobria o X de excluir nos vídeos importados; agora fica embaixo da duração.'],

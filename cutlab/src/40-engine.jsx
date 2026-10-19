@@ -315,7 +315,7 @@ class Engine {
       if (state) {
         const rate = clamp(state.rate || c.speed, 0.0625, 16);
         this.rates.set(c.id, { rate, playing: !!state.play });
-        const muted = (c._sub ? c._muted : trackState[c.track]?.muted || trackState[clipRow(c)]?.muted || (soloOn(trackState) && !trackState[clipRow(c)]?.solo)) || !state.active;
+        const muted = (c._sub ? c._muted : trackState[clipRow(c)]?.muted || (soloOn(trackState) && !trackState[clipRow(c)]?.solo)) || !state.active;
         const vol = propAt(c, 'volume', clamp(t - c.start, 0, c.duration));
         this.setVolume(c.id, el, muted ? 0 : (vol / 100) * audioFade(c, t) * (c._gain ?? 1));
         if (state.play) {

@@ -280,3 +280,64 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; }
 .btn.btn-del { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.btn-del:hover { filter: brightness(1.1); }
 .btn.btn-del:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* keyframes sempre visíveis nos clipes (apagados quando o clipe não está selecionado) */
+.kf-dot.idle { color: rgba(255,255,255,.55); pointer-events: none; animation: none; }
+.clip:hover .kf-dot.idle { color: rgba(255,255,255,.8); }
+
+/* editor de keyframes */
+.kf-editor { position: fixed; left: 0; right: 0; margin-inline: auto; bottom: 18px; width: min(1080px, calc(100vw - 32px)); z-index: 60;
+  background: var(--panel); border: 1px solid var(--border-2); border-radius: 14px; box-shadow: 0 24px 60px -12px rgba(0,0,0,.8); overflow: hidden;
+  display: flex; flex-direction: column; max-height: min(460px, calc(100vh - 120px)); animation: modalIn .3s var(--spring) both; }
+.kf-editor .ce-head { flex-wrap: wrap; row-gap: 6px; }
+.kfe-views { margin-left: 6px; }
+.kfe-tools { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+.kfe-tools .tl-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+.kf-editor .ce-head > .icon-btn:last-child { margin-left: auto; }
+.kfe-tools + .icon-btn { margin-left: 4px !important; }
+.kfe-empty { padding: 18px 18px 20px; font-size: 13px; color: var(--muted); }
+.kfe-empty p { margin: 0 0 12px; max-width: 640px; line-height: 1.5; }
+.kfe-body { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 0; overflow: auto; background: var(--bg); }
+.kfe-names { border-right: 1px solid var(--border); background: var(--panel); }
+.kfe-ruler-pad { height: 22px; display: flex; align-items: center; padding: 0 6px; border-bottom: 1px solid var(--border); }
+.kfe-ruler-pad .chip { padding: 1px 7px; font-size: 11px; }
+.kfe-name { height: 26px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding: 0 6px 0 10px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.03); }
+.kfe-name.sum { font-weight: 600; background: rgba(255,255,255,.03); }
+.kfe-name .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kfe-name .val { color: #6fb4ff; font: 11px 'Geist Mono', monospace; }
+.kfe-name .nav { display: flex; gap: 1px; }
+.kfe-name .nav button { width: 18px; height: 18px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 9px; border-radius: 4px; cursor: pointer; }
+.kfe-name .nav button:hover { color: var(--text); background: var(--panel-3); }
+.kfe-name .nav button.on { color: #ffd23f; }
+.kfe-area { position: relative; min-width: 0; cursor: crosshair; touch-action: none; user-select: none; }
+.kfe-ruler { position: relative; height: 22px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.kfe-ruler span { position: absolute; top: 5px; transform: translateX(-50%); font: 10px 'Geist Mono', monospace; color: var(--faint); white-space: nowrap; }
+.kfe-rows { position: relative; }
+.kfe-row { position: absolute; left: 0; right: 0; border-bottom: 1px solid rgba(255,255,255,.03); }
+.kfe-row.sum { background: rgba(255,255,255,.025); }
+.kfe-span { position: absolute; top: 12px; height: 2px; background: rgba(255,210,63,.22); pointer-events: none; }
+.kfe-span.hold { background: repeating-linear-gradient(90deg, rgba(255,210,63,.35) 0 3px, transparent 3px 6px); }
+.kfe-kf { position: absolute; top: 7px; z-index: 2; cursor: ew-resize; overflow: visible; }
+.kfe-kf path { fill: #3a3a44; stroke: #ffd23f; stroke-width: 1.2; }
+.kfe-kf:hover path { fill: #5b5b66; }
+.kfe-kf.on path { fill: #ffd23f; stroke: #fff; }
+.kfe-kf.sum path { stroke: #c9c9d1; }
+.kfe-kf.sum.on path { fill: #e6e6ea; }
+.kfe-head { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -.5px; background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); pointer-events: none; z-index: 3; }
+.kfe-marq { position: absolute; z-index: 4; pointer-events: none; border: 1px solid rgba(255,255,255,.7); background: rgba(124,160,255,.14); border-radius: 3px; }
+.kfe-foot { min-height: 40px; }
+.kfe-field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.kfe-num { width: 74px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; color: var(--text); font: 12px 'Geist Mono', monospace; }
+.kfe-num:focus { outline: none; border-color: var(--accent); }
+.kfe-suf { color: var(--faint); margin-left: -2px; }
+.kfe-graph { background: var(--bg); overflow: auto; }
+.kfe-graph .ce-props { max-width: none; margin: 0; padding: 8px 12px 0; }
+.curve-embedded .ce-foot { background: var(--panel); }
+.kfe-add { position: relative; display: inline-block; }
+.kfe-add-list { position: absolute; left: 0; top: calc(100% + 4px); z-index: 5; min-width: 170px; max-height: 240px; overflow: auto; padding: 4px;
+  background: var(--panel-2); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 14px 30px -10px rgba(0,0,0,.8); display: flex; flex-direction: column; }
+.kfe-add-list button, .kfe-menu button { text-align: left; background: transparent; border: 0; color: var(--text); padding: 6px 9px; border-radius: 6px; font-size: 12.5px; cursor: pointer; }
+.kfe-add-list button:hover, .kfe-menu button:hover { background: var(--panel-3); }
+.kfe-menu { position: fixed; z-index: 71; min-width: 170px; padding: 4px; background: var(--panel-2); border: 1px solid var(--border-2); border-radius: 10px;
+  box-shadow: 0 14px 30px -10px rgba(0,0,0,.8); display: flex; flex-direction: column; }
+.kfe-menu-back { position: fixed; inset: 0; z-index: 70; }

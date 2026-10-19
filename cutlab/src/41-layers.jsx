@@ -83,7 +83,9 @@ Object.assign(Engine.prototype, {
     for (let i = 0; i < rows.length; i++) rows[i] = rows[i].rk;
     const isFx = (rk) => rowTrack(rk) === 'effect';
     const solo = soloOn(ts);
-    const visible = (rk) => !ts[rk]?.hidden && !ts[rowTrack(rk)]?.hidden && (!solo || ts[rk]?.solo);
+    // cada linha tem o próprio estado: a camada 1 usa a chave da faixa ('overlay'), então não dá para ler essa
+    // chave como "faixa inteira" — ocultar a Sobreposição 1 ocultava todas
+    const visible = (rk) => !ts[rk]?.hidden && (!solo || ts[rk]?.solo);
     const pairs = this.pairs(clips);
     const draw = (target, rk) => {
       let list = clips.filter((c) => clipRow(c) === rk && t >= c.start && t < c.start + c.duration).sort((a, b) => a.start - b.start);

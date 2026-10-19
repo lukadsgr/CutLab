@@ -120,7 +120,7 @@ async function mixProjectAudio(clips, assetMap, ts, dur, sr) {
   };
   const solo = soloOn(ts);
   for (const c of media) {
-    const muted = c._sub ? c._muted : (ts[c.track]?.muted || ts[clipRow(c)]?.muted || (solo && !ts[clipRow(c)]?.solo));
+    const muted = c._sub ? c._muted : (ts[clipRow(c)]?.muted || (solo && !ts[clipRow(c)]?.solo));
     const a = assetMap[c.assetId];
     if (muted || !a || a.loading) continue;
     const got = await bufOf(a);

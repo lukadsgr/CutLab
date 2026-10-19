@@ -468,8 +468,20 @@ function App() {
   };
 
   /* ---------- keyframes ---------- */
+  /** abre o editor de keyframes do clipe selecionado (G, botão da linha do tempo, clique duplo num keyframe) */
+  const openKfEditor = () => {
+    if (!live.current.selectedId) { notify('Selecione um clipe para editar os keyframes dele'); return; }
+    setCurveOpen(true);
+  };
+  // sem clipe selecionado o editor não tem o que mostrar: fecha de vez (senão reabriria sozinho ao selecionar outro)
+  useEffect(() => { if (!selectedId) setCurveOpen(false); }, [selectedId]);
+  useEffect(() => {
+    const on = () => openKfEditor();
+    window.addEventListener('cutlab-keyframes', on);
+    return () => window.removeEventListener('cutlab-keyframes', on);
+  });
   const kfApi = {
-    curves: () => setCurveOpen(true),
+    curves: () => openKfEditor(),
     toggle: (id, prop) => mapClip(id, (c) => toggleKf(c, prop, localOf(c))),
     addAll: (id, props) => mapClip(id, (c) => addKfs(c, props, localOf(c))),
     ease: (id, at, e) => mapClip(id, (c) => setKfEase(c, at, e)),
@@ -1682,8 +1694,9 @@ function App() {
       if (document.querySelector('.modal-back, .tour-back')) return;   // janela aberta: os atalhos ficam com ela
       // Espaço toca/pausa mesmo com um botão, slider ou lista focados; segurar a tecla não fica alternando
       if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { releaseFocus(); togglePlay(); } return; }
-      if (tag === 'INPUT' || tag === 'SELECT') return;     // sliders e listas usam as setas
       const mod = e.ctrlKey || e.metaKey;
+      // sliders e listas usam as setas; atalhos com Ctrl (desfazer, salvar…) valem mesmo com eles focados
+      if ((tag === 'INPUT' || tag === 'SELECT') && !mod) return;
       const key = e.key.toLowerCase();
       if (e.shiftKey && !mod && key === 'r') { e.preventDefault(); setRulers((v) => !v); }
       else if (live.current.tool === 'pen' && (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete')) {
@@ -1715,7 +1728,7 @@ function App() {
       else if (key === 'b') setBlade((b) => !b);
       else if (key === 'v') setBlade(false);
       else if (key === 'f') freezeFrame();
-      else if (key === 'g') setCurveOpen((v) => !v);
+      else if (key === 'g') { if (live.current.curveOpen) setCurveOpen(false); else openKfEditor(); }
       else if (key === 'q') trimSide('left');
       else if (key === 'w') trimSide('right');
       else if (key === 'k') keyframeHere();
@@ -1862,9 +1875,10 @@ function App() {
         actions={{ split, trimSide, remove, duplicate, extractAudio, copy: copyClip, cut: cutClip, paste: pasteClip, group: groupClips, ungroupClips, canUngroupClips, bladeAt, moveClips, dragLayout, settleGroup, layerOrder, compound: createCompound, ungroup: ungroupCompound, enterCompound, clearMarkers, canCompound: multi.length > 0, canUngroup: isCompound(selected), freeze: freezeFrame, keyframe: keyframeHere, marker: addMarker,
           removeMarker: (id) => setMarkers((m) => m.filter((x) => x.id !== id)),
           undo: hist.undo, redo: hist.redo, canUndo: hist.canUndo, canRedo: hist.canRedo }} />
-      {curveOpen && selected && kfCount(selected) > 0 && (
-        <KeyframeCurves clip={selected} local={clamp(time - selected.start, 0, selected.duration)}
-          onChange={(kfs, key) => setClip(selected.id, { keyframes: kfs }, key)}
+      {curveOpen && selected && (
+        <KeyframeEditor clip={selected} local={clamp(time - selected.start, 0, selected.duration)}
+          onPatch={(patch, key) => setClip(selected.id, patch, key)}
+          onAddDefault={() => { if (time < selected.start || time > selected.start + selected.duration) seek(selected.start); setTimeout(keyframeHere, 0); }}
           onSeek={(t) => { setPlaying(false); seek(selected.start + t); }} onClose={() => setCurveOpen(false)} />
       )}
       {trEdit && <TransitionEditor initial={trEdit.def} applyTo={trEdit.applyTo} onSave={saveTrEditor} onClose={() => setTrEdit(null)} />}

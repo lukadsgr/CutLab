@@ -55,11 +55,11 @@ function expandMedia(clips, ts, off = 0, win = null, muted = false, gain = 1, ne
   for (const c of clips) {
     if (isCompound(c)) {
       const s = off + c.start, w = [Math.max(s, win ? win[0] : -Infinity), Math.min(s + c.duration, win ? win[1] : Infinity)];
-      const m = muted || !!(ts[c.track]?.muted || ts[clipRow(c)]?.muted);
+      const m = muted || !!ts[clipRow(c)]?.muted;
       const fd = c.props.fadeIn > 0 || c.props.fadeOut > 0 ? [...fades, { start: s, duration: c.duration, props: c.props }] : fades;
       out.push(...expandMedia(c.children, c.trackState || {}, s - c.in, w, m, gain * ((c.props.volume ?? 100) / 100), true, fd));
     } else if (isMedia(c) || !nested) {
-      out.push(nested ? { ...c, start: c.start + off, _sub: true, _win: win, _muted: muted || !!(ts[c.track]?.muted || ts[clipRow(c)]?.muted), _gain: gain, _fades: fades } : c);
+      out.push(nested ? { ...c, start: c.start + off, _sub: true, _win: win, _muted: muted || !!ts[clipRow(c)]?.muted, _gain: gain, _fades: fades } : c);
     }
   }
   return out;

@@ -35,13 +35,13 @@ const ClipView = React.memo(function ClipView({ c, asset, pps, selected, grouped
         {icon && <Icon name={icon} size={11} stroke={2.4} />}
         {c.speed !== 1 && <em>{+c.speed.toFixed(2)}×</em>}
         {c.props.filter && c.props.filter !== 'none' && <em>{FILTERS.find((f) => f.id === c.props.filter)?.name}</em>}
-        {times.length > 0 && !selected && <em>◆ {times.length}</em>}
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <span style={{ opacity: 0.7, marginLeft: 'auto' }}>{width > 110 ? fmtDur(c.duration) : ''}</span>
       </div>
-      {selected && times.map((t) => (
-        <div key={t} className="kf-dot" style={{ left: t * pps }} title={`Keyframe em ${fmt(c.start + t)} — arraste para mover`}
-          onPointerDown={(e) => onKfDown(e, c, t)}>
+      {/* keyframes sempre à vista; com o clipe selecionado dá para arrastá-los (clique duplo abre o editor) */}
+      {times.map((t) => (
+        <div key={t} className={`kf-dot ${selected ? '' : 'idle'}`} style={{ left: t * pps }} title={`Keyframe em ${fmt(c.start + t)} — arraste para mover · clique duplo abre o editor de keyframes`}
+          onPointerDown={selected ? (e) => onKfDown(e, c, t) : undefined} onDoubleClick={(e) => { e.stopPropagation(); openKeyframes(); }}>
           <Icon name="diamondFill" size={10} />
         </div>
       ))}
@@ -542,6 +542,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
         <button className="icon-btn" title="Congelar quadro (F): pausa a imagem no cursor por 2s" onClick={actions.freeze}><Icon name="freeze" size={16} /></button>
         <div className="tl-sep" />
         <button className="icon-btn" title="Keyframe no cursor (K)" disabled={!selectedId} onClick={actions.keyframe}><Icon name="diamond" size={15} stroke={2} /></button>
+        <button className="icon-btn" title="Editor de keyframes (G): folha de keyframes, Easy Ease, copiar/colar e gráfico de curvas" disabled={!selectedId} onClick={openKeyframes}><Icon name="curve" size={16} /></button>
         <button className="icon-btn" title="Marcador (M): cria no cursor; se já houver um ali, remove · botão direito remove todos" onClick={actions.marker}
           onContextMenu={(e) => { e.preventDefault(); if (markers.length) actions.clearMarkers(); }}><Icon name="marker" size={15} /></button>
         <div className="tl-sep" />

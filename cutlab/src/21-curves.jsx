@@ -22,10 +22,11 @@ const PROP_LABELS = {
   fontSize: 'Tamanho do texto', maskX: 'Máscara X', maskY: 'Máscara Y', maskW: 'Máscara largura', maskH: 'Máscara altura', maskRot: 'Máscara rotação', maskFeather: 'Máscara suavização',
 };
 
-function KeyframeCurves({ clip, local, onChange, onSeek, onClose }) {
+function KeyframeCurves({ clip, local, onChange, onSeek, onClose, embedded = false, propName = null }) {
   const props = Object.keys(clip.keyframes || {}).filter((k) => clip.keyframes[k]?.length);
   const [propSel, setProp] = useState(props[0]);
-  const prop = props.includes(propSel) ? propSel : props[0];
+  // dentro do editor de keyframes a propriedade vem de fora
+  const prop = embedded && props.includes(propName) ? propName : props.includes(propSel) ? propSel : props[0];
   const list = prop ? clip.keyframes[prop] : [];
   const [segSel, setSeg] = useState(0);
   const seg = clamp(segSel, 0, Math.max(0, list.length - 2));
@@ -127,8 +128,8 @@ function KeyframeCurves({ clip, local, onChange, onSeek, onClose }) {
   const activePreset = a && (a.ease === 'bezier' ? CURVE_PRESETS.find((p) => p.bz && p.bz.join() === a.bz?.join())?.id : a.ease);
 
   return (
-    <div className="curve-editor" role="dialog" aria-label="Editor de curvas">
-      <div className="ce-head">
+    <div className={embedded ? 'curve-embedded' : 'curve-editor'} role={embedded ? undefined : 'dialog'} aria-label="Editor de curvas">
+      {!embedded && <div className="ce-head">
         <Icon name="curve" size={15} />
         <b>Editor de curvas</b>
         <span className="ce-clip">{clip.name || clip.props.text?.slice(0, 24) || ''}</span>
@@ -136,7 +137,7 @@ function KeyframeCurves({ clip, local, onChange, onSeek, onClose }) {
           {props.map((k) => <button key={k} className={`chip ${k === prop ? 'on' : ''}`} onClick={() => { setProp(k); setSeg(0); }}>{PROP_LABELS[k] || k}</button>)}
         </div>
         <button className="icon-btn" title="Fechar (Esc)" onClick={onClose}><Icon name="x" size={14} /></button>
-      </div>
+      </div>}
       <div className="ce-graph" ref={wrapRef}>
         <svg width={w} height={H} onPointerDown={clickGraph}>
           {grid.map((v) => (
