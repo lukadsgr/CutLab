@@ -254,3 +254,29 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; }
 .tour-dots button { width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%; background: var(--panel-3); cursor: pointer; transition: width .25s var(--ease), background .2s; }
 .tour-dots button.on { width: 20px; border-radius: 4px; background: var(--accent); }
 .tour-actions { display: flex; gap: 8px; align-items: center; }
+
+/* biblioteca: selo PROXY embaixo do tempo, sem cobrir o X de excluir; itens selecionados */
+.asset-proxy-ok { left: auto; right: 5px; top: 25px; pointer-events: none; }
+.asset-del { z-index: 2; }
+.asset { cursor: pointer; }
+.asset.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 14px -4px var(--accent-glow); }
+.asset.sel:hover { border-color: var(--accent); }
+.lib-item { cursor: pointer; }
+.lib-item.sel { background: rgba(255,45,70,.1); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* confirmação de exclusão */
+.del-modal { width: min(400px, calc(100vw - 32px)); }
+.del-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.del-head h2 { margin: 0; }
+.del-ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: rgba(255,45,70,.14); color: var(--accent); flex: none; }
+.del-modal p { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.del-modal p b { color: var(--text); font-weight: 600; word-break: break-all; }
+.del-list { list-style: none; margin: 8px 0 0; padding: 8px 10px; border-radius: 9px; background: rgba(255,255,255,.03); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 5px; max-height: 160px; overflow: auto; }
+.del-list li { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.del-list li svg { flex: none; color: var(--muted); }
+.del-list li.more { color: var(--faint); }
+.del-modal p.del-warn { padding: 8px 10px; border-radius: 9px; background: rgba(255,176,32,.1); color: #ffcf7a; }
+.del-modal p.del-note { font-size: 12px; color: var(--faint); }
+.btn.btn-del { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.btn-del:hover { filter: brightness(1.1); }
+.btn.btn-del:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }

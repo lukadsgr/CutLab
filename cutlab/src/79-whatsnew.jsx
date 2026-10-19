@@ -10,6 +10,14 @@
    ===================================================================== */
 const CHANGELOG = [
   {
+    id: '2026-10-18.4', date: '18/10/2026', title: 'Excluir mídias da biblioteca',
+    items: [
+      ['correção', 'O selo PROXY cobria o X de excluir nos vídeos importados; agora fica embaixo da duração.'],
+      ['novo', 'Selecione mídias na biblioteca com um clique (Ctrl soma, Shift pega um intervalo) e aperte Delete para excluí-las.'],
+      ['novo', 'Antes de excluir, uma janela pede confirmação e avisa quantos clipes da linha do tempo usam aqueles itens.'],
+    ],
+  },
+  {
     id: '2026-10-18.3', date: '18/10/2026', desktop: '0.2.0', title: 'Camadas em ordem, agulha com cabeça e novidades',
     items: [
       ['novo', 'Arraste o cabeçalho de uma camada para mudar a ordem. Acima da Principal ficam sobreposições, textos, legendas e efeitos; abaixo, o Áudio. A Principal não se move.'],

@@ -346,16 +346,22 @@ function App() {
   }, [notify]);
 
   /** remove da biblioteca e da linha do tempo inteira (inclusive de dentro dos compostos) */
-  const removeAsset = (id) => {
-    const asset = assets.find((x) => x.id === id);
-    const strip = (cs) => cs.filter((c) => c.assetId !== id).map((c) => (c.children ? { ...c, children: strip(c.children) } : c));
+  /** quantos clipes (inclusive dentro dos compostos) usam a mídia */
+  const assetUses = (id) => {
     const count = (cs) => cs.reduce((n, c) => n + (c.assetId === id ? 1 : 0) + (c.children ? count(c.children) : 0), 0);
-    const used = count(rootRef.current);
-    if (used && !window.confirm(`“${asset?.name || 'Este item'}” está em ${used} clipe(s) da linha do tempo, que também serão removidos. Continuar?`)) return;
-    setAssets((a) => a.filter((x) => x.id !== id));
+    return count(rootRef.current);
+  };
+  /** a confirmação é feita antes, na janela da biblioteca (que mostra também os clipes afetados) */
+  const removeAssets = (ids) => {
+    const del = new Set(ids);
+    if (!del.size) return;
+    const strip = (cs) => cs.filter((c) => !del.has(c.assetId)).map((c) => (c.children ? { ...c, children: strip(c.children) } : c));
+    const used = ids.some((id) => assetUses(id) > 0);
+    setAssets((a) => a.filter((x) => !del.has(x.id)));
     if (used) rootHist.set(strip);
     if (live.current.selectedId && !allClipIds(strip(rootRef.current)).has(live.current.selectedId)) select(null);
-    notify(`${asset?.type === 'audio' ? 'Áudio' : 'Item'} excluído`);
+    const one = del.size === 1 && assets.find((x) => del.has(x.id));
+    notify(one ? `${one.type === 'audio' ? 'Áudio' : 'Item'} excluído` : `${del.size} itens excluídos`);
   };
 
   const addSfx = async (def) => {
@@ -1807,7 +1813,7 @@ function App() {
         <filter id="cl-sharpen"><feConvolveMatrix order="3" kernelMatrix="0 -1 0 -1 5 -1 0 -1 0" preserveAlpha="true" /></filter>
       </svg>
       <div className="workspace" style={{ gridTemplateColumns: `${fit.left}px 5px minmax(0, 1fr) 5px ${fit.right}px` }}>
-        <LeftPanel assets={assets} usedAssets={usedAssets} onImport={importFiles} onAddAsset={(a) => addAsset(a)} onRemoveAsset={removeAsset}
+        <LeftPanel assets={assets} usedAssets={usedAssets} onImport={importFiles} onAddAsset={(a) => addAsset(a)} onRemoveAssets={removeAssets} assetUses={assetUses}
           onAddText={addText} onAddSticker={addSticker} onAddColor={addColor} onAddSfx={addSfx}
           selected={selected} selectedAsset={selectedAsset} onApplyFilter={applyFilter}
           onAddEffect={(id) => addEffect(id)} onApplyTransition={(id) => applyTransition(id)} onAddAdjust={addAdjust}

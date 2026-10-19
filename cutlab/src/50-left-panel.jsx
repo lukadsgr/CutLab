@@ -82,7 +82,7 @@ function StickerIcon({ e }) {
 }
 
 function LeftPanel(props) {
-  const { assets, usedAssets = new Map(), onImport, onAddAsset, onRemoveAsset, onAddText, onAddSticker, onAddColor, onAddSfx, selected, selectedAsset,
+  const { assets, usedAssets = new Map(), onImport, onAddAsset, onRemoveAssets, assetUses, onAddText, onAddSticker, onAddColor, onAddSfx, selected, selectedAsset,
     onApplyFilter, onAddEffect, onApplyTransition, onAddAdjust, onApplyTemplate, captions, trApi } = props;
   const trV = useTransitionsVersion();
   const trFileRef = useRef();
@@ -115,6 +115,42 @@ function LeftPanel(props) {
 
   const visualAssets = assets.filter((a) => a.type !== 'audio');
   const audioAssets = assets.filter((a) => a.type === 'audio');
+
+  /* seleção na biblioteca: clique seleciona, Ctrl soma/tira, Shift pega o intervalo; Delete pede confirmação.
+     Clicar fora da biblioteca limpa a seleção (e o Delete volta a valer para a linha do tempo) */
+  const [assetSel, setAssetSel] = useState([]);
+  const [delAsk, setDelAsk] = useState(null);   // ids que esperam a confirmação de exclusão
+  const anchorRef = useRef(null);
+  const selRef = useRef(assetSel);
+  selRef.current = assetSel;
+  const clickAsset = (e, a, list) => {
+    const ids = list.map((x) => x.id);
+    if (e.shiftKey && anchorRef.current && ids.includes(anchorRef.current)) {
+      const [i, j] = [ids.indexOf(anchorRef.current), ids.indexOf(a.id)].sort((x, y) => x - y);
+      setAssetSel(ids.slice(i, j + 1));
+      return;
+    }
+    anchorRef.current = a.id;
+    setAssetSel((s) => (e.ctrlKey || e.metaKey ? (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id]) : [a.id]));
+  };
+  useEffect(() => {
+    const down = (e) => {
+      if (e.target.closest?.('.modal-back')) return;
+      if (!e.target.closest?.('.asset, .lib-item')) setAssetSel((s) => (s.length ? [] : s));
+    };
+    // fase de captura: o Delete com itens da biblioteca selecionados não chega à linha do tempo
+    const key = (e) => {
+      if (!selRef.current.length || isTypingTarget(e.target) || document.querySelector('.modal-back, .tour-back')) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopImmediatePropagation(); setDelAsk([...selRef.current]); }
+      else if (e.key === 'Escape') { e.stopImmediatePropagation(); setAssetSel([]); }
+    };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('keydown', key, true);
+    return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('keydown', key, true); };
+  }, []);
+  useEffect(() => setAssetSel([]), [tab]);
+  // itens que saíram da biblioteca saem da seleção
+  useEffect(() => { setAssetSel((s) => { const n = s.filter((id) => assets.some((a) => a.id === id)); return n.length === s.length ? s : n; }); }, [assets]);
   const missingCount = assets.filter((a) => a.missing).length;
   const sampleUrl = useMemo(() => sampleImages().a.toDataURL(), []);
   const previewImg = selectedAsset?.thumb || sampleUrl;
@@ -123,7 +159,8 @@ function LeftPanel(props) {
   const empty = (msg) => <div className="hint">{msg}</div>;
 
   const assetTile = (a) => (
-    <div key={a.id} className="asset" draggable={!a.loading} onDragStart={(e) => { e.dataTransfer.setData('text/asset', a.id); }} onDoubleClick={() => onAddAsset(a)} title={a.name}>
+    <div key={a.id} className={`asset ${assetSel.includes(a.id) ? 'sel' : ''}`} draggable={!a.loading} onDragStart={(e) => { e.dataTransfer.setData('text/asset', a.id); }}
+      onClick={(e) => clickAsset(e, a, visualAssets)} onDoubleClick={() => onAddAsset(a)} title={a.name}>
       <div className="asset-thumb" style={a.thumb ? { backgroundImage: `url(${a.thumb})` } : null}>
         {!a.thumb && <Icon name={a.type === 'audio' ? 'music' : 'image'} size={22} />}
       </div>
@@ -131,7 +168,7 @@ function LeftPanel(props) {
       {a.duration && a.type !== 'image' ? <span className="asset-badge">{fmtDur(a.duration)}</span> : null}
       {usedAssets.has(a.id) && <span className="asset-used" title={`Na linha do tempo (${usedAssets.get(a.id)} clipe${usedAssets.get(a.id) > 1 ? 's' : ''})`}><Icon name="check" size={11} stroke={3} /></span>}
       {!a.loading && !a.error && !a.missing && <button className="asset-add" title="Adicionar à linha do tempo" onClick={() => onAddAsset(a)}><Icon name="plus" size={14} stroke={2.5} /></button>}
-      <button className="asset-del" title="Remover da biblioteca" onClick={() => onRemoveAsset(a.id)}><Icon name="x" size={11} stroke={2.5} /></button>
+      <button className="asset-del" title="Remover da biblioteca" onClick={(e) => { e.stopPropagation(); setDelAsk([a.id]); }}><Icon name="x" size={11} stroke={2.5} /></button>
       {a.type === 'video' && <ProxyBadge a={a} />}
       {a.loading && <div className="asset-loading">Processando…</div>}
       {a.error && <div className="asset-loading">Formato não suportado</div>}
@@ -139,7 +176,8 @@ function LeftPanel(props) {
     </div>
   );
   const audioRow = (a) => (
-    <div key={a.id} className="list-item" draggable={!a.loading} onDragStart={(e) => e.dataTransfer.setData('text/asset', a.id)} onDoubleClick={() => onAddAsset(a)}>
+    <div key={a.id} className={`list-item lib-item ${assetSel.includes(a.id) ? 'sel' : ''}`} draggable={!a.loading} onDragStart={(e) => e.dataTransfer.setData('text/asset', a.id)}
+      onClick={(e) => clickAsset(e, a, audioAssets)} onDoubleClick={() => onAddAsset(a)}>
       <div className="li-icon">{usedAssets.has(a.id) ? <span className="asset-used inline" title="Na linha do tempo"><Icon name="check" size={11} stroke={3} /></span> : null}<Icon name="music" size={15} /></div>
       <div className="li-text">
         <div className="li-name" title={a.name}>{a.name}</div>
@@ -147,7 +185,7 @@ function LeftPanel(props) {
         <div className="li-sub">{a.loading ? 'Processando…' : a.error ? 'Formato não suportado' : a.missing ? 'Arquivo não encontrado — importe de novo' : a.duration ? fmtDur(a.duration) : ''}</div>
       </div>
       {!a.loading && !a.error && !a.missing && <button className="icon-btn" title="Adicionar" onClick={() => onAddAsset(a)}><Icon name="plus" size={15} /></button>}
-      <button className="icon-btn li-del" title="Excluir áudio" onClick={(e) => { e.stopPropagation(); onRemoveAsset(a.id); }}><Icon name="trash" size={14} /></button>
+      <button className="icon-btn li-del" title="Excluir áudio" onClick={(e) => { e.stopPropagation(); setDelAsk([a.id]); }}><Icon name="trash" size={14} /></button>
     </div>
   );
   const sfxRow = (s) => (
@@ -382,7 +420,43 @@ function LeftPanel(props) {
           {body}
         </div>
       </div>
+      {delAsk && ReactDOM.createPortal(
+        <DeleteAssetsModal items={assets.filter((a) => delAsk.includes(a.id))} uses={assetUses}
+          onCancel={() => setDelAsk(null)} onConfirm={() => { onRemoveAssets(delAsk); setDelAsk(null); setAssetSel([]); }} />, document.body)}
     </aside>
+  );
+}
+
+/** confirmação antes de excluir mídias da biblioteca (Enter confirma, Esc cancela) */
+function DeleteAssetsModal({ items, uses, onCancel, onConfirm }) {
+  const used = items.reduce((n, a) => n + uses(a.id), 0);
+  useEffect(() => {
+    const k = (e) => { if (e.key === 'Escape') { e.preventDefault(); onCancel(); } };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, []);
+  if (!items.length) return null;
+  const one = items.length === 1;
+  return (
+    <div className="modal-back" onPointerDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="modal del-modal">
+        <div className="del-head"><span className="del-ic"><Icon name="trash" size={18} /></span>
+          <h2>{one ? 'Excluir este item?' : `Excluir ${items.length} itens?`}</h2></div>
+        <p>{one ? <>“<b>{items[0].name}</b>” sai da biblioteca do projeto.</> : 'Estes itens saem da biblioteca do projeto:'}</p>
+        {!one && (
+          <ul className="del-list">
+            {items.slice(0, 6).map((a) => <li key={a.id}><Icon name={a.type === 'audio' ? 'music' : a.type === 'image' ? 'image' : 'film'} size={12} />{a.name}</li>)}
+            {items.length > 6 && <li className="more">e mais {items.length - 6}…</li>}
+          </ul>
+        )}
+        {used > 0 && <p className="del-warn">{used > 1 ? `${used} clipes da linha do tempo usam` : '1 clipe da linha do tempo usa'} {one ? 'este item' : 'estes itens'} e {used > 1 ? 'também serão removidos' : 'também será removido'}.</p>}
+        <p className="del-note">O arquivo no seu computador não é apagado.</p>
+        <div className="actions">
+          <button className="btn" onClick={onCancel}>Cancelar</button>
+          <button className="btn btn-del" autoFocus onClick={onConfirm}><Icon name="trash" size={14} /> Excluir</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
