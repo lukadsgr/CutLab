@@ -74,7 +74,7 @@ function focusClip(clips, rk, time, selectedId) {
     || inRow.sort((a, b) => Math.abs(a.start - time) - Math.abs(b.start - time))[0] || null;
 }
 
-function LayerHead({ tr, lane, ghost, rk, st, num, name, label, hw, height, parentOptions, rowApi, onWhipStart, onLabelMenu, open }) {
+function LayerHead({ tr, lane, ghost, rk, st, num, name, label, hw, height, parentOptions, rowApi, onWhipStart, onLabelMenu, open, onRowDown, dragging }) {
   const [renaming, setRenaming] = useState(false);
   const visualRow = canParentRow(rk);
   const matteRow = VISUAL_TRACKS.includes(tr.id);
@@ -91,7 +91,8 @@ function LayerHead({ tr, lane, ghost, rk, st, num, name, label, hw, height, pare
     );
   }
   return (
-    <div className={`tl-head ae-head ${st.lock ? 'is-locked' : ''}`} data-row={rk} style={{ height, width: hw, '--label': label }}>
+    <div className={`tl-head ae-head ${st.lock ? 'is-locked' : ''} ${tr.id !== 'main' ? 'movable' : ''} ${dragging ? 'row-dragging' : ''}`} data-row={rk} style={{ height, width: hw, '--label': label }}
+      onPointerDown={(e) => onRowDown?.(e, rk)} title={tr.id === 'main' ? 'A Principal fica sempre no lugar' : 'Arraste para mudar a ordem da camada'}>
       <div className="ae-sw">
         {sw('hidden', 'eye', 'eyeOff', st.hidden ? 'Mostrar camada' : 'Ocultar camada', tr.id !== 'audio')}
         {sw('muted', 'volume', 'volumeX', st.muted ? 'Ativar som' : 'Silenciar', ['main', 'overlay', 'audio'].includes(tr.id))}

@@ -34,6 +34,8 @@ function TopBar({ name, setName, onExport, canExport, hist, menu, saveState }) {
             <div className="menu-sep" />
             {item(menu.diagOn ? 'Fechar diagnóstico de reprodução' : 'Diagnóstico de reprodução', menu.diag, 'Ctrl+Shift+D')}
             {item('Atalhos de teclado', menu.shortcuts)}
+            {item('Tutorial rápido', openTour)}
+            {item('Novidades', openWhatsNew)}
             {DESKTOP && item('Procurar atualizações…', openUpdates)}
             {item('Sobre o CutLab', menu.about)}
           </div>

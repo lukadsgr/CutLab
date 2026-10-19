@@ -476,33 +476,33 @@ class Engine {
       }
       for (const c of list) boxes.push(this.drawClip(ctx, c, assetMap[c.assetId], t, W, H, k));
     }
+    // sobreposições, textos e efeitos na ordem das camadas (um efeito vale para tudo o que está abaixo dele)
     this.renderLayers(ctx, W, H, t, clips, assetMap, trackState, k, boxes);
-    if (!trackState.effect?.hidden) {
-      for (const c of at('effect')) {
-        const src = tmpCanvas('fxSrc', W, H);
-        const sx = src.getContext('2d');
-        sx.globalCompositeOperation = 'source-over';
-        sx.drawImage(ctx.canvas, 0, 0);
-        const local = t - c.start;
-        const p = resolveProps(c, local);
-        const f = fadeFactor(c, t);
-        ctx.save();
-        if (c.type === 'effect') EFFECT_MAP[p.effect]?.fn(ctx, src, W, H, local * p.fxSpeed, (p.intensity / 100) * f, k);
-        else {
-          // camada de ajuste: correção de cor completa sobre o quadro inteiro
-          const G = copyTo('adjG', src);
-          gradeCanvas(G, p, k, local);
-          if (p.brightness !== 100 || p.contrast !== 100 || p.saturation !== 100 || p.hue || p.sepia || p.blur) {
-            const G2 = copyTo('adjG2', G), gx = G.getContext('2d');
-            gx.save(); gx.filter = filterCss(p, k); gx.globalCompositeOperation = 'copy'; gx.drawImage(G2, 0, 0); gx.restore();
-          }
-          ctx.globalAlpha = f;
-          ctx.drawImage(G, 0, 0);
-        }
-        ctx.restore();
-      }
-    }
     return boxes;
+  }
+  /** aplica um clipe de efeito ou de ajuste sobre o que já foi desenhado em `ctx` */
+  applyEffect(ctx, c, t, W, H, k) {
+    const src = tmpCanvas('fxSrc', W, H);
+    const sx = src.getContext('2d');
+    sx.globalCompositeOperation = 'source-over';
+    sx.drawImage(ctx.canvas, 0, 0);
+    const local = t - c.start;
+    const p = resolveProps(c, local);
+    const f = fadeFactor(c, t);
+    ctx.save();
+    if (c.type === 'effect') EFFECT_MAP[p.effect]?.fn(ctx, src, W, H, local * p.fxSpeed, (p.intensity / 100) * f, k);
+    else {
+      // camada de ajuste: correção de cor completa sobre o quadro inteiro
+      const G = copyTo('adjG', src);
+      gradeCanvas(G, p, k, local);
+      if (p.brightness !== 100 || p.contrast !== 100 || p.saturation !== 100 || p.hue || p.sepia || p.blur) {
+        const G2 = copyTo('adjG2', G), gx = G.getContext('2d');
+        gx.save(); gx.filter = filterCss(p, k); gx.globalCompositeOperation = 'copy'; gx.drawImage(G2, 0, 0); gx.restore();
+      }
+      ctx.globalAlpha = f;
+      ctx.drawImage(G, 0, 0);
+    }
+    ctx.restore();
   }
   /**
    * desfoque de movimento pela animação: o clipe é desenhado uma vez num canvas próprio e

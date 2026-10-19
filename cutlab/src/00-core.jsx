@@ -94,19 +94,34 @@ const compactLanes = (cs) => {
   for (const [t, set] of Object.entries(map)) idx[t] = new Map([...set].sort((a, b) => a - b).map((l, i) => [l, i]));
   return cs.map((c) => { const n = idx[c.track].get(laneOf(c)); return n === laneOf(c) ? c : { ...c, lane: n }; });
 };
+/* ---------- ordem das camadas ----------
+   Acima da Principal ficam sobreposições, textos, legendas e efeitos, numa ordem só que o usuário pode mudar
+   arrastando as linhas; abaixo dela, o Áudio. A Principal não se move. A ordem fica em trackState[linha].z
+   (maior = mais acima); linhas sem z usam a ordem padrão por tipo, e linhas novas surgem por cima das reordenadas. */
+const UPPER_TRACKS = ['overlay', 'text', 'caption', 'effect'];
+const Z_BASE = { overlay: 1000, text: 2000, caption: 3000, effect: 4000, audio: 1000 };
+const rowZone = (track) => (track === 'main' ? 'main' : track === 'audio' ? 'audio' : 'upper');
+const rowZ = (ts, track, lane) => {
+  const own = ts?.[rowKey(track, lane)]?.z;
+  if (own != null) return own;
+  // camada nova sem z: logo acima da camada de baixo mais próxima da mesma faixa que já tem lugar definido
+  for (let l = lane - 1; l >= 0; l--) { const z = ts?.[rowKey(track, l)]?.z; if (z != null) return z + (lane - l) * 0.001; }
+  return (Z_BASE[track] ?? 0) + lane;
+};
 /** faixas que aparecem sempre; as outras só quando têm algum clipe (ou, em `show`, as que servem de destino de um arraste) */
 const ALWAYS_TRACKS = ['main', 'audio'];
 /** linhas da linha do tempo, de cima para baixo (camadas mais altas ficam acima, como no CapCut) */
-const timelineRows = (cs, extra = [], show = null) => {
+const timelineRows = (cs, extra = [], show = null, ts = null) => {
   const rows = [];
   for (const tr of TRACKS) {
     if (tr.id === 'main') { rows.push({ tr, lane: 0 }); continue; }
     if (!show?.includes(tr.id) && !ALWAYS_TRACKS.includes(tr.id) && !cs.some((c) => c.track === tr.id) && !extra.some((e) => e.track === tr.id)) continue;
     const set = new Set([0, ...cs.filter((c) => c.track === tr.id).map(laneOf), ...extra.filter((e) => e.track === tr.id).map((e) => e.lane)]);
-    const lanes = [...set].sort((a, b) => b - a);
-    for (const lane of lanes) rows.push({ tr, lane, ghost: extra.some((e) => e.ghost && e.track === tr.id && e.lane === lane) && !cs.some((c) => c.track === tr.id && laneOf(c) === lane) });
+    for (const lane of set) rows.push({ tr, lane, ghost: extra.some((e) => e.ghost && e.track === tr.id && e.lane === lane) && !cs.some((c) => c.track === tr.id && laneOf(c) === lane) });
   }
-  return rows;
+  // de cima para baixo: camadas superiores (pela ordem z), Principal, Áudio
+  const zone = { upper: 0, main: 1, audio: 2 };
+  return rows.sort((a, b) => zone[rowZone(a.tr.id)] - zone[rowZone(b.tr.id)] || rowZ(ts, b.tr.id, b.lane) - rowZ(ts, a.tr.id, a.lane));
 };
 const isMedia = (c) => c.type === 'video' || c.type === 'audio';
 const isDrawable = (c) => c && c.type !== 'audio' && c.type !== 'effect' && c.type !== 'adjust';

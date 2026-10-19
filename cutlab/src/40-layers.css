@@ -206,3 +206,51 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; }
 .asset-proxy i { position: absolute; inset: 0 auto 0 0; background: rgba(255,45,70,.55); transition: width .3s var(--ease); }
 .asset-proxy span { position: relative; display: block; text-align: center; font: 500 9.5px/16px 'Geist Mono', monospace; color: #fff; }
 .asset-proxy-ok { position: absolute; left: 6px; top: 6px; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,.6); color: var(--text); font: 600 8.5px/14px 'Geist Mono', monospace; letter-spacing: .5px; }
+
+/* cabeça da agulha na régua: visível sempre, mesmo rolando as camadas */
+.ph-head { position: absolute; top: 0; left: -7px; width: 14px; height: 22px; z-index: 3; pointer-events: none; will-change: transform;
+  background: var(--accent); border-radius: 3px 3px 0 0; clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
+  filter: drop-shadow(0 0 6px var(--accent-glow)); }
+.ph-head::after { content: ""; position: absolute; left: 50%; top: 4px; width: 2px; height: 7px; margin-left: -1px; border-radius: 1px; background: rgba(255,255,255,.85); }
+.ph-head.snapped { background: #fff; }
+.ph-head.under-head { visibility: hidden; }
+.timeline.playing .ph-head { animation: phPulse 1s ease-in-out infinite; }
+
+/* reordenar camadas arrastando o cabeçalho */
+.ae-head.movable { cursor: grab; }
+.ae-head.movable :is(button, input, .scrub) { cursor: pointer; }
+.ae-head.row-dragging { opacity: .55; cursor: grabbing; }
+.tl-row-drop { position: absolute; left: 0; right: 0; height: 2px; margin-top: -1px; z-index: 9; pointer-events: none; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+
+/* novidades */
+.news-modal { width: min(560px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 48px)); display: flex; flex-direction: column; }
+.news-head { display: flex; align-items: center; gap: 8px; color: var(--accent); }
+.news-head h2 { color: var(--text); margin: 0; }
+.news-list { overflow-y: auto; margin: 14px -6px 0; padding: 0 6px; display: flex; flex-direction: column; gap: 14px; }
+.news-ver { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: rgba(255,255,255,.02); }
+.news-ver.latest { border-color: rgba(255,45,70,.35); background: rgba(255,45,70,.05); }
+.news-title { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 8px; }
+.news-title b { font-size: 13.5px; }
+.news-title span { font-size: 11px; color: var(--faint); white-space: nowrap; }
+.news-ver ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.news-ver li { display: grid; grid-template-columns: 74px 1fr; gap: 8px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.news-tag { align-self: start; text-align: center; font-size: 10.5px; font-weight: 600; padding: 2px 0; border-radius: 6px; text-transform: uppercase; letter-spacing: .03em; }
+.news-tag.novo { background: rgba(255,45,70,.16); color: #ff6b7d; }
+.news-tag.melhoria { background: rgba(79,111,224,.18); color: #8ea4ff; }
+.news-tag.correção { background: rgba(74,168,74,.18); color: #7fd47f; }
+.news-tag.removido { background: rgba(255,255,255,.08); color: var(--muted); }
+
+/* tutorial guiado */
+.tour-back { position: fixed; inset: 0; z-index: 60; }
+.tour-dim { position: absolute; inset: 0; background: rgba(0,0,0,.6); animation: fadeIn .25s ease both; }
+.tour-spot { position: absolute; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(0,0,0,.62), 0 0 0 2px var(--accent), 0 0 24px var(--accent-glow);
+  pointer-events: none; transition: left .4s var(--spring), top .4s var(--spring), width .4s var(--spring), height .4s var(--spring); }
+.tour-card { position: absolute; background: rgba(16,16,19,.98); border: 1px solid var(--border-2); border-radius: 14px; padding: 16px 16px 14px;
+  box-shadow: 0 24px 60px -16px rgba(0,0,0,.9); animation: modalIn .35s var(--spring) both; }
+.tour-step { font-size: 11px; color: var(--accent); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.tour-card h3 { margin: 4px 0 6px; font-size: 16px; }
+.tour-card p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
+.tour-dots { display: flex; gap: 5px; margin: 14px 0 12px; }
+.tour-dots button { width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%; background: var(--panel-3); cursor: pointer; transition: width .25s var(--ease), background .2s; }
+.tour-dots button.on { width: 20px; border-radius: 4px; background: var(--accent); }
+.tour-actions { display: flex; gap: 8px; align-items: center; }

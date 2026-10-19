@@ -164,7 +164,34 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     window.addEventListener('drop', off);
     return () => { window.removeEventListener('dragstart', on); window.removeEventListener('dragend', off); window.removeEventListener('drop', off); };
   }, []);
-  const rows = useMemo(() => timelineRows(clips, extraRows, libDrag), [clips, extraRows, libDrag]);
+  const rows = useMemo(() => timelineRows(clips, extraRows, libDrag, trackState), [clips, extraRows, libDrag, trackState]);
+  /** arrastar o cabeçalho de uma camada muda a ordem: as de cima da Principal só entre si, o Áudio só entre si;
+   *  a Principal não se move */
+  const [rowDrag, setRowDrag] = useState(null);   // { rk, y }: linha arrastada e onde ela vai entrar
+  const startRowDrag = (e, rk) => {
+    if (e.button !== 0 || e.target.closest('button, input, select, .scrub, .head-resizer')) return;
+    const zone = rowZone(rowTrack(rk));
+    const list = rows.filter((r) => !r.ghost && rowZone(r.tr.id) === zone).map((r) => rowKey(r.tr.id, r.lane));
+    if (zone === 'main' || list.length < 2) return;
+    e.preventDefault();
+    const sy = e.clientY;
+    let moved = false, at = null;
+    onWindowDrag((ev) => {
+      if (!moved && Math.abs(ev.clientY - sy) < 5) return;
+      moved = true;
+      const heads = list.map((k) => scrollRef.current.querySelector(`.ae-head[data-row="${CSS.escape(k)}"]`)?.getBoundingClientRect()).filter(Boolean);
+      if (heads.length !== list.length) return;
+      at = heads.filter((h) => ev.clientY > h.top + h.height / 2).length;
+      const top = scrollRef.current.querySelector('.tl-content').getBoundingClientRect().top;
+      setRowDrag({ rk, y: (at < heads.length ? heads[at].top : heads[heads.length - 1].bottom) - top });
+    }, () => {
+      setRowDrag(null);
+      if (!moved || at == null) return;
+      const from = list.indexOf(rk), next = list.filter((k) => k !== rk);
+      next.splice(at > from ? at - 1 : at, 0, rk);
+      if (next.some((k, i) => k !== list[i])) rowApi.setOrder(next);
+    });
+  };
   // numeração de cima para baixo (#) e lista de camadas que podem ser pai
   const rowInfo = useMemo(() => {
     const m = new Map();
@@ -192,7 +219,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   const groups = useMemo(() => liveGroups(clips), [clips]);
 
   // cursor: anda a cada quadro pelo relógio (o React só recebe o tempo ~10×/s na reprodução)
-  const headRef = useRef();
+  const headRef = useRef(), headTopRef = useRef();
   const placeHead = (t) => {
     const ph = headRef.current, el = scrollRef.current;
     if (!ph) return;
@@ -200,6 +227,10 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
     const sl = el?.scrollLeft ?? 0, cw = el?.clientWidth ?? 0, x = hw + t * pps;
     ph.style.transform = `translateX(${x}px)`;
     ph.classList.toggle('under-head', t * pps < sl - 1);
+    if (headTopRef.current) {
+      headTopRef.current.style.transform = `translateX(${t * pps}px)`;
+      headTopRef.current.classList.toggle('under-head', t * pps < sl - 1);
+    }
     if (playing && el && (x > sl + cw - 40 || x < sl + hw)) el.scrollLeft = x - hw - 40;
   };
   useClock(placeHead);
@@ -228,19 +259,21 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
   };
   /** arraste que rola a linha do tempo sozinho quando o mouse encosta na borda esquerda/direita */
   const onEdgeDrag = (move, up) => {
-    let last = null, raf = 0;
-    const EDGE = 56;
+    let last = null, raf = 0, vel = 0;
+    const EDGE = 48, RANGE = 160, VMAX = 22;   // px da borda onde começa · distância até a velocidade máxima · px por quadro
     const tick = () => {
       raf = 0;
       const el = scrollRef.current;
-      if (!last || !el) return;
+      if (!last || !el) { vel = 0; return; }
       const r = el.getBoundingClientRect(), lo = r.left + hw, hi = r.right;
-      // mais perto (ou além) da borda = mais rápido
-      const v = last.clientX < lo + EDGE ? -Math.min(40, 3 + (lo + EDGE - last.clientX) / 2.5)
-        : last.clientX > hi - EDGE ? Math.min(40, 3 + (last.clientX - (hi - EDGE)) / 2.5) : 0;
-      if (!v) return;
+      // quanto mais o mouse avança para o lado (inclusive para fora da linha do tempo), mais rápido, até VMAX
+      const d = last.clientX < lo + EDGE ? -(lo + EDGE - last.clientX) : last.clientX > hi - EDGE ? last.clientX - (hi - EDGE) : 0;
+      const want = d ? Math.sign(d) * (1 + (VMAX - 1) * Math.min(1, Math.abs(d) / RANGE) ** 1.5) : 0;
+      // acelera e freia suave em vez de saltar de velocidade
+      vel += (want - vel) * 0.18;
+      if (!want && Math.abs(vel) < 0.3) { vel = 0; return; }
       const before = el.scrollLeft;
-      el.scrollLeft = Math.max(0, before + v);
+      el.scrollLeft = Math.max(0, before + vel);
       if (el.scrollLeft !== before) move(last);   // o conteúdo andou sob o mouse: recalcula a posição
       raf = requestAnimationFrame(tick);
     };
@@ -265,7 +298,8 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
       onSeek(t);
     };
     go(e);
-    onWindowDrag(go, () => setPhSnap(false));
+    // perto das bordas a linha do tempo rola sozinha e a agulha vai junto
+    onEdgeDrag(go, () => setPhSnap(false));
   };
   // eixo de visualização: o reprodutor mostra o quadro sob o mouse
   const [skimT, setSkimT] = useState(null);
@@ -545,6 +579,9 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
             </div>
             <div className="tl-ruler" style={{ width, backgroundImage: rulerBg }} onPointerDown={startScrub}>
               {ticks.map((s) => <div key={s} className="tick" style={{ left: s * pps }}><span>{fmtShort(s)}</span></div>)}
+              {/* cabeça da agulha: fica na régua (fixa no topo) e arrasta como a régua */}
+              <div ref={headTopRef} className={`ph-head ${phSnap ? 'snapped' : ''}`} style={{ transform: `translateX(${playClock.t * pps}px)` }} />
+
               {markers.map((m) => (
                 <div key={m.id} className="marker" style={{ left: m.t * pps }} title="Marcador — clique para ir · clique duplo ou botão direito remove"
                   onPointerDown={(e) => { e.stopPropagation(); if (e.button === 0) onSeek(m.t); }} onDoubleClick={() => actions.removeMarker(m.id)}
@@ -566,6 +603,7 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
               <div className={`tl-row ${ghost ? 'ghost-row' : ''} ${lane ? 'sub-row' : ''} ${whip?.over === rk && whip.rk !== rk ? 'whip-over' : ''}`}>
                 <LayerHead tr={tr} lane={lane} ghost={ghost} rk={rk} st={st} num={info?.num} name={rowName(trackState, tr, lane, nLanes)} label={label}
                   hw={hw} height={tr.h} parentOptions={opts} rowApi={rowApi} onWhipStart={startWhip} open={!!st.open}
+                  onRowDown={startRowDrag} dragging={rowDrag?.rk === rk}
                   onLabelMenu={(k, at) => setLabelMenu({ rk: k, at })} />
                 <div className={`tl-lane lane-${tr.id} ${dropTrack === rk ? 'drop' : ''}`} data-track={tr.id} data-lane={lane}
                   style={{ width, height: tr.h, opacity: st.hidden ? 0.5 : 1 }}
@@ -613,9 +651,9 @@ function Timeline({ clips, assetMap, time, duration, playing, selectedId, multi 
           })}
           {tools.blade && bladeT && bladeT.t * pps >= scrollX && <div className={`tl-blade ${bladeT.all ? 'all' : ''}`} style={{ left: hw + bladeT.t * pps }}><span>{bladeT.all ? 'Cortar tudo · ' : ''}{fmt(bladeT.t)}</span></div>}
           {marq && <div className="tl-marquee" style={marq} />}
+          {rowDrag && <div className="tl-row-drop" style={{ top: rowDrag.y }} />}
           {skimT != null && skimT * pps >= scrollX && <div className="tl-skim" style={{ left: hw + skimT * pps }}><span>{fmt(skimT)}</span></div>}
           <div ref={headRef} className={`tl-playhead ${phSnap ? 'snapped' : ''} ${playClock.t * pps < scrollX - 1 ? 'under-head' : ''}`} style={{ transform: `translateX(${hw + playClock.t * pps}px)` }}>
-            <div className="ph-handle" onPointerDown={startScrub} />
           </div>
           {clipMenu && (() => {
         const c = clips.find((x) => x.id === clipMenu.id);

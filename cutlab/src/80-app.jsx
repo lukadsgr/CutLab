@@ -941,6 +941,12 @@ function App() {
   const setRow = (rk, patch) => setTrackState((s) => ({ ...s, [rk]: { ...s[rk], ...patch } }));
   const rowApi = {
     setRow,
+    /** nova ordem de uma zona de camadas (lista de cima para baixo): grava o z de cada linha */
+    setOrder: (rks) => setTrackState((s) => {
+      const out = { ...s };
+      rks.forEach((rk, i) => { out[rk] = { ...s[rk], z: rks.length - i }; });
+      return out;
+    }),
     setParent: (rk, parent) => {
       if (!parent) { setRow(rk, { parent: undefined, rest: undefined }); return; }
       const ts = live.current.trackState;
@@ -1667,7 +1673,7 @@ function App() {
         if (tag === 'INPUT' && (e.key === 'Enter' || e.key === 'Escape')) e.target.blur();
         return;
       }
-      if (document.querySelector('.modal-back')) return;   // janela aberta: os atalhos ficam com ela
+      if (document.querySelector('.modal-back, .tour-back')) return;   // janela aberta: os atalhos ficam com ela
       // Espaço toca/pausa mesmo com um botão, slider ou lista focados; segurar a tecla não fica alternando
       if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { releaseFocus(); togglePlay(); } return; }
       if (tag === 'INPUT' || tag === 'SELECT') return;     // sliders e listas usam as setas
@@ -1861,6 +1867,7 @@ function App() {
         method={exportMethod} setMethod={setExportMethod} offlineOk={offlineExportSupported()} offlineLabel={offlineProg.label}
         onStart={startExport} onCancel={cancelExport} onClose={() => setExportState(null)} progress={exportState?.offline ? offlineProg.p : duration ? time / duration : 0} />
       <InfoModal kind={info} onClose={() => setInfo(null)} />
+      <Onboarding />
       {dropHint && <div className="drop-overlay">Solte para importar</div>}
       {toast && <div className="toast">{toast}</div>}
     </div>

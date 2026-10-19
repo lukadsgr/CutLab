@@ -76,11 +76,12 @@ Object.assign(Engine.prototype, {
   },
   /** linhas de sobreposição/texto/legenda, com parentesco, fosco de trilha e solo */
   renderLayers(ctx, W, H, t, clips, assetMap, ts, k, boxes) {
+    // de baixo para cima, na ordem das camadas da linha do tempo
     const rows = [];
-    for (const tid of VISUAL_TRACKS) {
-      const lanes = [...new Set(clips.filter((c) => c.track === tid).map(laneOf))].sort((a, b) => a - b);
-      for (const l of lanes) rows.push(rowKey(tid, l));
-    }
+    for (const tid of UPPER_TRACKS) for (const l of new Set(clips.filter((c) => c.track === tid).map(laneOf))) rows.push({ rk: rowKey(tid, l), z: rowZ(ts, tid, l) });
+    rows.sort((a, b) => a.z - b.z);
+    for (let i = 0; i < rows.length; i++) rows[i] = rows[i].rk;
+    const isFx = (rk) => rowTrack(rk) === 'effect';
     const solo = soloOn(ts);
     const visible = (rk) => !ts[rk]?.hidden && !ts[rowTrack(rk)]?.hidden && (!solo || ts[rk]?.solo);
     const pairs = this.pairs(clips);
@@ -109,7 +110,12 @@ Object.assign(Engine.prototype, {
     };
     for (let i = 0; i < rows.length; i++) {
       const rk = rows[i], m = ts[rk]?.matte, above = rows[i + 1];
-      if (m && m !== 'none' && above) {
+      if (isFx(rk)) {
+        // efeito/ajuste: vale para tudo o que já foi desenhado (as camadas abaixo dele)
+        if (visible(rk)) for (const c of clips.filter((x) => clipRow(x) === rk && t >= x.start && t < x.start + x.duration).sort((a, b) => a.start - b.start)) this.applyEffect(ctx, c, t, W, H, k);
+        continue;
+      }
+      if (m && m !== 'none' && above && !isFx(above)) {
         if (visible(rk)) {
           const L = tmpCanvas('matteL', W, H), M = tmpCanvas('matteM', W, H);
           const lx = L.getContext('2d'), mx = M.getContext('2d');
