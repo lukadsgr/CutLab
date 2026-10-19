@@ -913,13 +913,16 @@ const SHORTCUTS = [
   ['Pular 1 segundo', 'Shift + ← / →'], ['Importar mídia', 'Ctrl + I'], ['Exportar', 'Ctrl + E'], ['Salvar projeto', 'Ctrl + S'], ['Abrir projeto', 'Ctrl + O'],
   ['Lâmina: cortar com o mouse', 'B (Shift+clique corta tudo)'], ['Voltar à seleção', 'V / Esc'], ['Selecionar nada', 'Esc'],
   ['Copiar / recortar clipe', 'Ctrl + C / X'], ['Colar no cursor', 'Ctrl + V'], ['Congelar quadro', 'F'],
-  ['Editor de curvas dos keyframes', 'G'], ['Selecionar com caixa', 'Arrastar no vazio da faixa (Ctrl soma)'],
+  ['Editor de keyframes', 'G'], ['Selecionar com caixa', 'Arrastar no vazio da faixa (Ctrl soma)'],
   ['Selecionar vários clipes', 'Ctrl + clique'], ['Agrupar / desagrupar clipes', 'Ctrl + G / Ctrl + Shift + G'],
   ['Criar / desfazer clipe composto', 'Alt + G / Alt + Shift + G'], ['Editar clipe composto', 'Clique duplo · Esc volta'],
   ['Camada acima / abaixo', 'Ctrl + ] / ['], ['Camada para a frente / o fundo', 'Ctrl + Shift + ] / ['],
   ['Criar ou remover marcador no cursor', 'M · botão direito no marcador remove'], ['Zoom na linha do tempo', 'Ctrl + roda'],
   ['Mostrar / esconder réguas', 'Shift + R'], ['Mão (arrastar a prévia)', 'H'], ['Zoom da prévia', 'Ctrl + + / − · Ctrl + 0 ajusta'],
   ['Início / fim do projeto', 'Home / End'], ['Diagnóstico de reprodução', 'Ctrl + Shift + D'],
+  ['Excluir mídias selecionadas na biblioteca', 'Delete (pede confirmação)'],
+  ['Keyframes: Easy Ease', 'F9 (no editor de keyframes)'], ['Keyframes: suavizar entrada / saída', 'Shift + F9 / Ctrl + Shift + F9'],
+  ['Keyframes: copiar / colar no cursor', 'Ctrl + C / V (no editor)'], ['Keyframes: selecionar todos', 'Ctrl + A (no editor)'], ['Keyframes: empurrar 1 quadro', 'Alt + ← / →'],
 ];
 
 function ProjectPanel({ name, ratio, setRatio, duration, clipCount, assetCount }) {
@@ -942,10 +945,11 @@ function InfoModal({ kind, onClose }) {
   if (!kind) return null;
   return (
     <div className="modal-back" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className={`modal ${kind === 'shortcuts' ? 'shortcuts-modal' : ''}`}>
         {kind === 'shortcuts' ? (<>
           <h2>Atalhos de teclado</h2>
-          <div style={{ marginTop: 12 }}>{SHORTCUTS.map(([a, k]) => <div key={a} className="shortcut"><span>{a}</span><kbd>{k}</kbd></div>)}</div>
+          {/* a lista rola por dentro: a janela nunca passa da altura da tela */}
+          <div className="shortcuts-list">{SHORTCUTS.map(([a, k]) => <div key={a} className="shortcut"><span>{a}</span><kbd>{k}</kbd></div>)}</div>
         </>) : (<>
           <h2>CutLab</h2>
           <p>Editor de vídeo no navegador, inspirado no fluxo de trabalho de editores como o CapCut. Tudo roda localmente: seus arquivos não saem do computador.</p>

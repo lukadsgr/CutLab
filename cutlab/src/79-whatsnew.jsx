@@ -10,6 +10,13 @@
    ===================================================================== */
 const CHANGELOG = [
   {
+    id: '2026-10-18.6', date: '18/10/2026', desktop: '0.3.0', title: 'Janela de atalhos cabe na tela',
+    items: [
+      ['correção', 'A janela de atalhos de teclado passava da altura da tela; agora a lista rola por dentro e o botão Fechar fica sempre visível.'],
+      ['melhoria', 'A lista de atalhos inclui os do editor de keyframes e o Delete da biblioteca.'],
+    ],
+  },
+  {
     id: '2026-10-18.5', date: '18/10/2026', title: 'Editor de keyframes e Ctrl+Z confiável',
     items: [
       ['novo', 'Editor de keyframes (tecla G ou o botão de curva na barra da linha do tempo): uma linha por propriedade animada, com seleção múltipla, caixa de seleção, arrastar, clique duplo para criar e Animar propriedade.'],
