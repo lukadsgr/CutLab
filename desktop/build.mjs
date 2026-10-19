@@ -3,6 +3,7 @@
 import { mkdirSync, copyFileSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { sources, page } from '../cutlab/build.mjs';
+import { releaseNotes } from './release-notes.mjs';
 
 const require = createRequire(import.meta.url);
 const out = new URL('./app/', import.meta.url);
@@ -26,14 +27,7 @@ const html = page({ css, app: code, compiled: true, scripts: ['vendor/react.prod
 writeFileSync(new URL('./index.html', out), html);
 console.log('desktop/app/index.html gerado (' + (html.length / 1024).toFixed(0) + ' KB)');
 
-// notas da versão no GitHub (o programa instalado mostra no aviso de atualização): as entradas das Novidades
-// desde a versão anterior — do topo até a primeira entrada marcada com `desktop` de outra versão
+// notas da versão (vão para o latest.yml; o GitHub Actions também as põe na página da versão)
 const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
-const src = readFileSync(new URL('../cutlab/src/79-whatsnew.jsx', import.meta.url), 'utf8');
-const CHANGELOG = new Function(src.match(/const CHANGELOG = (\[[\s\S]*?\n\]);/)[1].replace(/^/, 'return '))();
-const since = [];
-for (const v of CHANGELOG) { if (v.desktop && v.desktop !== version) break; since.push(v); }
-const LABEL = { novo: 'Novo', melhoria: 'Melhoria', correção: 'Correção', removido: 'Removido' };
-const notes = since.map((v) => `### ${v.title}\n\n${v.items.map(([k, t]) => `- **${LABEL[k] ?? k}:** ${t}`).join('\n')}`).join('\n\n');
-writeFileSync(new URL('./build/release-notes.md', import.meta.url), notes + '\n');
-console.log(`notas da versão ${version}: ${since.length} entrada(s) das Novidades`);
+writeFileSync(new URL('./build/release-notes.md', import.meta.url), releaseNotes(version));
+console.log(`notas da versão ${version} geradas das Novidades`);

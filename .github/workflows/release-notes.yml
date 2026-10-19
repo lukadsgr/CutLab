@@ -1,0 +1,36 @@
+# Põe as notas (vindas das Novidades) na página da versão do GitHub.
+# O programa instalado mostra esse texto no aviso de atualização; sem ele, o GitHub
+# mostraria a mensagem do commit da tag.
+# Roda depois de cada lançamento e também quando este arquivo muda (para corrigir a última versão).
+name: Notas da versão desktop
+
+on:
+  workflow_run:
+    workflows: ['Lançar versão desktop']
+    types: [completed]
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-notes.yml', 'desktop/release-notes.mjs']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Escrever as notas na última versão publicada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(gh release view --json tagName -q .tagName)
+          node desktop/release-notes.mjs "${tag#v}" notes.md
+          gh release edit "$tag" --notes-file notes.md
+          echo "Notas de $tag atualizadas"
