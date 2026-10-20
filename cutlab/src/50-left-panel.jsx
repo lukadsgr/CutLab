@@ -82,7 +82,7 @@ function StickerIcon({ e }) {
 }
 
 function LeftPanel(props) {
-  const { assets, usedAssets = new Map(), onImport, onAddAsset, onRemoveAssets, assetUses, onAddText, onAddSticker, onAddColor, onAddSfx, selected, selectedAsset,
+  const { assets, usedAssets = new Map(), onImport, onPick, onReconnect, onAddAsset, onRemoveAssets, assetUses, onAddText, onAddSticker, onAddColor, onAddSfx, selected, selectedAsset,
     onApplyFilter, onAddEffect, onApplyTransition, onAddAdjust, onApplyTemplate, captions, trApi } = props;
   const trV = useTransitionsVersion();
   const trFileRef = useRef();
@@ -96,7 +96,8 @@ function LeftPanel(props) {
   const setCat = (c) => setCats((s) => ({ ...s, [tab]: c }));
   const q = query.trim().toLowerCase();
   const match = (name) => !q || name.toLowerCase().includes(q);
-  const openPicker = (accept) => { fileRef.current.accept = accept; fileRef.current.click(); };
+  // com onPick, a janela de arquivos guarda atalhos (vídeos grandes não são copiados para o navegador)
+  const openPicker = (accept) => { if (onPick) return onPick(accept); fileRef.current.accept = accept; fileRef.current.click(); };
   const switchTab = (id) => vt(() => { setTab(id); setQuery(''); });
   // indicador deslizante da aba ativa
   const [ind, setInd] = useState(null);
@@ -152,6 +153,7 @@ function LeftPanel(props) {
   // itens que saíram da biblioteca saem da seleção
   useEffect(() => { setAssetSel((s) => { const n = s.filter((id) => assets.some((a) => a.id === id)); return n.length === s.length ? s : n; }); }, [assets]);
   const missingCount = assets.filter((a) => a.missing).length;
+  const reconnectCount = assets.filter((a) => a.missing && a.reconnect).length;
   const sampleUrl = useMemo(() => sampleImages().a.toDataURL(), []);
   const previewImg = selectedAsset?.thumb || sampleUrl;
   const canFilter = selected && (selected.type === 'video' || selected.type === 'image' || selected.type === 'color');
@@ -172,7 +174,9 @@ function LeftPanel(props) {
       {a.type === 'video' && <ProxyBadge a={a} />}
       {a.loading && <div className="asset-loading">Processando…</div>}
       {a.error && <div className="asset-loading">Formato não suportado</div>}
-      {a.missing && <div className="asset-loading" title="Importe este arquivo de novo para religá-lo">Arquivo não encontrado</div>}
+      {a.missing && (a.reconnect
+        ? <div className="asset-loading" title="Clique em Reconectar (acima) para abrir o arquivo original">Clique em Reconectar</div>
+        : <div className="asset-loading" title="Importe este arquivo de novo para religá-lo">Arquivo não encontrado</div>)}
     </div>
   );
   const audioRow = (a) => (
@@ -182,7 +186,7 @@ function LeftPanel(props) {
       <div className="li-text">
         <div className="li-name" title={a.name}>{a.name}</div>
         {a.peaks ? <MiniWave peaks={a.peaks} className="mini-wave" /> : null}
-        <div className="li-sub">{a.loading ? 'Processando…' : a.error ? 'Formato não suportado' : a.missing ? 'Arquivo não encontrado — importe de novo' : a.duration ? fmtDur(a.duration) : ''}</div>
+        <div className="li-sub">{a.loading ? 'Processando…' : a.error ? 'Formato não suportado' : a.missing ? (a.reconnect ? 'Clique em Reconectar' : 'Arquivo não encontrado — importe de novo') : a.duration ? fmtDur(a.duration) : ''}</div>
       </div>
       {!a.loading && !a.error && !a.missing && <button className="icon-btn" title="Adicionar" onClick={() => onAddAsset(a)}><Icon name="plus" size={15} /></button>}
       <button className="icon-btn li-del" title="Excluir áudio" onClick={(e) => { e.stopPropagation(); setDelAsk([a.id]); }}><Icon name="trash" size={14} /></button>
@@ -216,9 +220,15 @@ function LeftPanel(props) {
         <div className="panel-title">Mídia local
           <button className="btn" onClick={() => openPicker('video/*,image/*,audio/*')}><Icon name="upload" size={14} /> Importar</button>
         </div>
-        {missingCount > 0 && (
+        {reconnectCount > 0 && (
           <div className="hint" style={{ marginBottom: 10, color: 'var(--text)' }}>
-            {missingCount} mídia(s) do projeto não estão neste computador.{' '}
+            {reconnectCount} vídeo(s) grande(s) ficam no arquivo original, sem cópia neste navegador. Dê permissão para abri-los de novo:{' '}
+            <button className="btn btn-primary" style={{ marginTop: 6 }} onClick={() => onReconnect?.()}><Icon name="linkage" size={14} /> Reconectar</button>
+          </div>
+        )}
+        {missingCount > reconnectCount && (
+          <div className="hint" style={{ marginBottom: 10, color: 'var(--text)' }}>
+            {missingCount - reconnectCount} mídia(s) do projeto não estão neste computador.{' '}
             <button className="btn" style={{ marginTop: 6 }} onClick={() => openPicker('video/*,image/*,audio/*')}><Icon name="upload" size={14} /> Localizar arquivos</button>
           </div>
         )}

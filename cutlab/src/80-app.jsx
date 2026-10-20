@@ -330,12 +330,14 @@ function App() {
         pending.splice(pending.indexOf(m), 1);
         const { ref, ...meta } = assetMeta(m);
         const back = restoreAsset(meta, f);
+        rememberHandle(m.id, f);
         setAssets((a) => a.map((x) => (x.id === m.id ? back : x)));
         relinked++;
         continue;
       }
       n++;
       const id = uid();
+      rememberHandle(id, f);
       const url = URL.createObjectURL(f);
       setAssets((a) => [...a, { id, type, name: f.name, url, file: f, loading: true }]);
       analyzeFile(type, url, f)
@@ -343,6 +345,26 @@ function App() {
         .catch(() => setAssets((a) => a.map((x) => (x.id === id ? { ...x, loading: false, error: true } : x))));
     }
     notify(relinked ? `${relinked} mídia(s) religada(s) ao projeto${n ? ` e ${n} importada(s)` : ''}` : n ? `${n} arquivo(s) importado(s)` : 'Formato não suportado');
+  }, [notify]);
+  const importFilesRef = useRef(importFiles);
+  importFilesRef.current = importFiles;
+  /** importar: a janela de arquivos com atalho (vídeos grandes não são copiados); senão, o <input> comum */
+  const pickMedia = useCallback(async (accept) => {
+    if (!canLinkFiles) { importRef.current.accept = accept || 'video/*,image/*,audio/*'; importRef.current.click(); return; }
+    try {
+      const files = await pickMediaFiles(accept);
+      if (files.length) importFilesRef.current(files);
+    } catch (e) {
+      if (e.name !== 'AbortError') importRef.current.click();   // usuário cancelou → nada
+    }
+  }, []);
+  /** "Reconectar": o navegador pede permissão de novo para abrir os vídeos pelos atalhos guardados */
+  const reconnect = useCallback(async () => {
+    const back = await reconnectMedia(projectRef.current.assets.filter((a) => a.missing && a.reconnect));
+    if (back.length) setAssets((as) => as.map((x) => back.find((b) => b.id === x.id) || x));
+    const left = projectRef.current.assets.filter((a) => a.missing).length - back.length;
+    notify(back.length ? `${back.length} mídia(s) reconectada(s)${left > 0 ? ` — ${left} ainda precisa(m) ser localizada(s)` : ''}`
+      : 'Não foi possível reconectar: o arquivo pode ter sido movido ou renomeado. Use "Localizar arquivos".');
   }, [notify]);
 
   /** remove da biblioteca e da linha do tempo inteira (inclusive de dentro dos compostos) */
@@ -1133,7 +1155,12 @@ function App() {
   useEffect(() => {
     navigator.storage?.persist?.().catch(() => {});
     loadAutosave()
-      .then((doc) => { if (doc && (doc.clips?.length || doc.assets.length)) { loadProject(doc); notify('Projeto anterior restaurado'); } })
+      .then((doc) => {
+        if (!doc || !(doc.clips?.length || doc.assets.length)) return;
+        loadProject(doc);
+        const re = doc.assets.filter((a) => a.missing && a.reconnect).length;
+        notify(re ? `Projeto anterior restaurado — clique em "Reconectar" na aba Mídia para liberar ${re} vídeo(s)` : 'Projeto anterior restaurado');
+      })
       .catch((e) => console.warn('CutLab: falha ao restaurar', e))
       .finally(() => { restoredRef.current = true; });
   }, []);
@@ -1170,7 +1197,9 @@ function App() {
       const doc = await unpackProject(f, projectRef.current.assets);
       loadProject(doc);
       const miss = doc.assets.filter((a) => a.missing).length;
-      notify(miss ? `“${f.name}” aberto — importe de novo ${miss} mídia(s) que faltam (aba Mídia)` : `“${f.name}” aberto`);
+      const re = doc.assets.filter((a) => a.missing && a.reconnect).length;
+      notify(re ? `“${f.name}” aberto — clique em "Reconectar" na aba Mídia para liberar ${re} vídeo(s)`
+        : miss ? `“${f.name}” aberto — importe de novo ${miss} mídia(s) que faltam (aba Mídia)` : `“${f.name}” aberto`);
     }
     catch (e) { notify(e.message || 'Arquivo de projeto inválido'); }
   };
@@ -1376,7 +1405,7 @@ function App() {
       img.onload = () => { setProps(clip.id, { matchOn: true, matchRef: a.id, ...colorMatch(f, img) }); notify(`Cores combinadas com “${a.name}”`); };
       img.src = a.type === 'image' ? a.url : a.thumb;
     },
-    importRef: () => importRef.current.click(),
+    importRef: () => pickMedia(),
     histogram: (clip) => { const f = frameOf(clip); return f ? frameStats(f).hist : null; },
     onPick: (cb) => { pickCb.current = cb; },
     applyAll: (clip) => {
@@ -1723,7 +1752,7 @@ function App() {
       else if (mod && key === 'd') { e.preventDefault(); duplicate(); }
       else if (mod && key === 'z') { e.preventDefault(); e.shiftKey ? hist.redo() : hist.undo(); }
       else if (mod && key === 'y') { e.preventDefault(); hist.redo(); }
-      else if (mod && key === 'i') { e.preventDefault(); importRef.current.click(); }
+      else if (mod && key === 'i') { e.preventDefault(); pickMedia(); }
       else if (mod && key === 'e') { e.preventDefault(); openExport(); }
       else if (mod && key === 's') { e.preventDefault(); saveProject(); }
       else if (mod && key === 'o') { e.preventDefault(); openProject(); }
@@ -1773,7 +1802,14 @@ function App() {
     const isFiles = (e) => e.dataTransfer?.types?.includes('Files');
     const over = (e) => { if (isFiles(e)) { e.preventDefault(); setDropHint(true); } };
     const leave = (e) => { if (!e.relatedTarget) setDropHint(false); };
-    const drop = (e) => { setDropHint(false); if (e.dataTransfer?.files?.length) { e.preventDefault(); importFiles([...e.dataTransfer.files]); } };
+    const drop = (e) => {
+      setDropHint(false);
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault();
+      // os atalhos dos arquivos soltos só podem ser pedidos aqui, durante o evento
+      const files = [...e.dataTransfer.files];
+      dropHandles(e.dataTransfer).then((hs) => { linkDropped(files, hs); importFiles(files); });
+    };
     window.addEventListener('dragover', over);
     window.addEventListener('dragleave', leave);
     window.addEventListener('drop', drop);
@@ -1832,13 +1868,13 @@ function App() {
         menu={{ newProject, openProject, saveProject, savePackage,copy: copyClip, cut: cutClip, paste: pasteClip, hasSelection: !!selectedId,
           group: groupClips, ungroupClips, canUngroupClips,
           compound: createCompound, ungroup: ungroupCompound, canCompound: multi.length > 0, canUngroup: isCompound(selected), clearMarkers, hasMarkers: markers.length > 0,
-          importMedia: () => importRef.current.click(), deselect: () => select(null), shortcuts: () => setInfo('shortcuts'), about: () => setInfo('about'), diag: () => setDiagOn((v) => !v), diagOn }} />
+          importMedia: () => pickMedia(), deselect: () => select(null), shortcuts: () => setInfo('shortcuts'), about: () => setInfo('about'), diag: () => setDiagOn((v) => !v), diagOn }} />
       {diagOn && <PerfHud onClose={() => setDiagOn(false)} />}
       <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
         <filter id="cl-sharpen"><feConvolveMatrix order="3" kernelMatrix="0 -1 0 -1 5 -1 0 -1 0" preserveAlpha="true" /></filter>
       </svg>
       <div className="workspace" style={{ gridTemplateColumns: `${fit.left}px 5px minmax(0, 1fr) 5px ${fit.right}px` }}>
-        <LeftPanel assets={assets} usedAssets={usedAssets} onImport={importFiles} onAddAsset={(a) => addAsset(a)} onRemoveAssets={removeAssets} assetUses={assetUses}
+        <LeftPanel assets={assets} usedAssets={usedAssets} onImport={importFiles} onPick={pickMedia} onReconnect={reconnect} onAddAsset={(a) => addAsset(a)} onRemoveAssets={removeAssets} assetUses={assetUses}
           onAddText={addText} onAddSticker={addSticker} onAddColor={addColor} onAddSfx={addSfx}
           selected={selected} selectedAsset={selectedAsset} onApplyFilter={applyFilter}
           onAddEffect={(id) => addEffect(id)} onApplyTransition={(id) => applyTransition(id)} onAddAdjust={addAdjust}

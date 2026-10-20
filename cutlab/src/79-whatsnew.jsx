@@ -10,6 +10,16 @@
    ===================================================================== */
 const CHANGELOG = [
   {
+    id: '2026-10-20.4', date: '20/10/2026', desktop: '0.3.3', title: 'Vídeos grandes não ocupam mais espaço em dobro',
+    items: [
+      ['melhoria', 'Vídeos com mais de 150 MB não são mais copiados para o armazenamento do navegador (ou do programa): o projeto guarda só um atalho para o arquivo original. Antes, cada vídeo importado ocupava o dobro de espaço no disco.'],
+      ['melhoria', 'As cópias que versões anteriores fizeram de vídeos grandes são apagadas sozinhas no próximo salvamento automático, liberando espaço no disco C. Nessa primeira vez, esses vídeos aparecem como "Arquivo não encontrado": use "Localizar arquivos" na aba Mídia uma única vez.'],
+      ['novo', 'No Chrome, Edge e Brave, se o navegador pedir permissão de novo para abrir os vídeos, aparece o botão "Reconectar" na aba Mídia (um clique). No programa para Windows os vídeos reabrem sozinhos.'],
+      ['melhoria', 'Abrir um arquivo .cutlab também reaproveita os atalhos dos vídeos deste computador, sem precisar importá-los de novo.'],
+      ['correção', 'Os proxies de um vídeo que ainda não foi religado eram apagados no primeiro salvamento automático, e tinham que ser gerados de novo.'],
+    ],
+  },
+  {
     id: '2026-10-20.3', date: '20/10/2026', desktop: '0.3.2', title: 'Nova janela de exportação',
     items: [
       ['novo', 'Janela de exportação refeita: miniatura do vídeo, nome do arquivo, resolução, quadros por segundo, qualidade (Leve, Recomendada, Alta) e tamanho estimado do arquivo.'],

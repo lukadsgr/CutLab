@@ -1,5 +1,5 @@
 // Processo principal do CutLab para Windows: abre a janela do editor e cuida das atualizações.
-const { app, BrowserWindow, protocol, net, ipcMain, shell, Menu, dialog } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, shell, Menu, dialog, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -119,6 +119,12 @@ else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    // vídeos grandes ficam só como atalho para o arquivo original (File System Access): o editor só lê
+    // arquivos que o próprio usuário escolheu ou soltou na janela; aqui a leitura vale direto ao reabrir,
+    // sem o botão "Reconectar". As demais permissões seguem o padrão do Electron (liberadas).
+    const fromApp = (url) => String(url || '').startsWith('cutlab://');
+    session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => permission !== 'fileSystem' || fromApp(origin));
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb, details) => cb(permission !== 'fileSystem' || fromApp(details?.requestingUrl)));
     protocol.handle('cutlab', (req) => {
       const rel = decodeURIComponent(new URL(req.url).pathname).replace(/^\/+/, '') || 'index.html';
       const file = path.normalize(path.join(APP_DIR, rel));
