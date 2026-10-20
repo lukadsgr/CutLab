@@ -1,7 +1,8 @@
 // Processo principal do CutLab para Windows: abre a janela do editor e cuida das atualizações.
-const { app, BrowserWindow, protocol, net, ipcMain, shell, Menu } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, shell, Menu, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('node:path');
+const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 
 // o editor roda em cutlab://app/ (e não em file://) para ter uma origem fixa:
@@ -63,6 +64,54 @@ ipcMain.handle('update:check', () => check());
 ipcMain.handle('update:download', () => autoUpdater.downloadUpdate().catch(() => {}));
 ipcMain.handle('update:install', () => setImmediate(() => autoUpdater.quitAndInstall(false, true)));
 ipcMain.on('app:version', (e) => { e.returnValue = app.getVersion(); });
+
+/* ---------- salvar a exportação (como no CapCut: escolhe a pasta antes, o vídeo vai direto para lá) ----------
+   A página só grava em pastas que o próprio usuário escolheu (ou na pasta Vídeos) e só abre no
+   Explorador arquivos que ela mesma salvou. A última pasta usada fica guardada para a próxima vez. */
+const prefsFile = () => path.join(app.getPath('userData'), 'export.json');
+const allowedDirs = new Set();
+const savedFiles = new Set();
+function exportDir() {
+  let dir = null;
+  try { dir = JSON.parse(fs.readFileSync(prefsFile(), 'utf8')).dir; } catch { /* primeira vez */ }
+  if (!dir || !fs.existsSync(dir)) dir = app.getPath('videos');
+  allowedDirs.add(dir);
+  return dir;
+}
+const rememberDir = (dir) => { allowedDirs.add(dir); fs.promises.writeFile(prefsFile(), JSON.stringify({ dir })).catch(() => {}); };
+/** nome livre na pasta: "video.mp4", "video (2).mp4"… (nunca sobrescreve) */
+function freePath(dir, name) {
+  const ext = path.extname(name), base = path.basename(name, ext);
+  for (let n = 1; ; n++) {
+    const p = path.join(dir, n === 1 ? name : `${base} (${n})${ext}`);
+    if (!fs.existsSync(p)) return p;
+  }
+}
+const cleanName = (name) => path.basename(String(name || 'video.mp4')).replace(/[\\/:*?"<>|]+/g, '-');
+ipcMain.handle('export:dir', () => exportDir());
+ipcMain.handle('export:pickDir', async (_e, current) => {
+  const r = await dialog.showOpenDialog(win, { title: 'Pasta para salvar os vídeos', defaultPath: current || exportDir(), properties: ['openDirectory', 'createDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  rememberDir(r.filePaths[0]);
+  return r.filePaths[0];
+});
+ipcMain.handle('export:write', async (_e, { dir, name, data }) => {
+  if (!allowedDirs.has(dir)) throw new Error('pasta não autorizada');
+  const file = freePath(dir, cleanName(name));
+  await fs.promises.writeFile(file, Buffer.from(data));
+  savedFiles.add(file);
+  return file;
+});
+ipcMain.handle('export:saveAs', async (_e, { name, data }) => {
+  const ext = path.extname(cleanName(name)).slice(1) || 'mp4';
+  const r = await dialog.showSaveDialog(win, { title: 'Salvar vídeo', defaultPath: path.join(exportDir(), cleanName(name)), filters: [{ name: 'Vídeo', extensions: [ext] }] });
+  if (r.canceled || !r.filePath) return null;
+  await fs.promises.writeFile(r.filePath, Buffer.from(data));
+  savedFiles.add(r.filePath);
+  rememberDir(path.dirname(r.filePath));
+  return r.filePath;
+});
+ipcMain.handle('export:show', (_e, file) => { if (savedFiles.has(file)) shell.showItemInFolder(file); });
 
 // uma janela só: abrir o CutLab de novo traz a janela existente para frente
 if (!app.requestSingleInstanceLock()) app.quit();

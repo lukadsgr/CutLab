@@ -156,15 +156,15 @@ async function mixProjectAudio(clips, assetMap, ts, dur, sr) {
 }
 
 /**
- * gera o MP4. `onProgress(fração, etapa)`; `isCancelled()` interrompe.
+ * gera o MP4. `onProgress(fração, etapa, { i, N, canvas })`; `isCancelled()` interrompe; `bitrate` do vídeo em bps.
  * Retorna { blob, ext, codec, seconds }.
  */
-async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration, onProgress, isCancelled }) {
+async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration, bitrate, onProgress, isCancelled }) {
   const started = performance.now();
   W -= W % 2; H -= H % 2;   // H.264 exige dimensões pares
   onProgress(0, 'Preparando…');
   const Mux = await loadMuxer();
-  const v = await pickVideoCodec(W, H, fps, W * H >= 1800000 ? 16e6 : 9e6);
+  const v = await pickVideoCodec(W, H, fps, bitrate || (W * H >= 1800000 ? 16e6 : 9e6));
   if (!v) throw new Error('Este navegador não consegue codificar vídeo');
   const sr = 48000;
   const aud = await pickAudioCodec(sr);
@@ -223,7 +223,7 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
       while (venc.encodeQueueSize > 8 && !failure) await drained(venc);
       // progresso 4×/s: cada atualização redesenha a interface inteira (antes era a cada 3 quadros)
       const now = performance.now();
-      if (now - shown > 250) { shown = now; onProgress(i / N, `Renderizando quadro ${i + 1} de ${N}`); await yieldNow(); }
+      if (now - shown > 250) { shown = now; onProgress(i / N, `Renderizando quadro ${i + 1} de ${N}`, { i, N, canvas: cv }); await yieldNow(); }
     }
     await venc.flush();
     if (failure) throw failure;

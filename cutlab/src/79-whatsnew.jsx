@@ -10,6 +10,15 @@
    ===================================================================== */
 const CHANGELOG = [
   {
+    id: '2026-10-20.3', date: '20/10/2026', desktop: '0.3.2', title: 'Nova janela de exportação',
+    items: [
+      ['novo', 'Janela de exportação refeita: miniatura do vídeo, nome do arquivo, resolução, quadros por segundo, qualidade (Leve, Recomendada, Alta) e tamanho estimado do arquivo.'],
+      ['novo', 'No programa para Windows você escolhe a pasta antes de exportar, e o vídeo é salvo direto nela (sem sobrescrever outro arquivo). No fim, "Mostrar na pasta" abre o Explorador.'],
+      ['melhoria', '"Baixar" virou "Salvar": no navegador abre a janela de salvar do Chrome/Edge para escolher onde guardar o vídeo.'],
+      ['novo', 'Durante a exportação aparecem o quadro sendo gerado, o tempo decorrido e restante e a velocidade. No fim, o vídeo pronto já toca na própria janela.'],
+    ],
+  },
+  {
     id: '2026-10-20.2', date: '20/10/2026', title: 'Exportação cerca de 3× mais rápida',
     items: [
       ['melhoria', 'A exportação rápida ficou cerca de 3× mais rápida: o áudio é mixado ao mesmo tempo que o vídeo é renderizado, em vez de antes dele.'],

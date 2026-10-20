@@ -1614,6 +1614,13 @@ function App() {
     // a exportação é sempre do projeto inteiro
     if (pathRef.current.length) { exitTo(0); notify('Voltando ao projeto para exportar a linha do tempo completa'); }
     setPlaying(false);
+    // miniatura do quadro atual para a janela de exportação
+    try {
+      const cv = canvasRef.current, sc = Math.min(1, 640 / Math.max(cv.width, cv.height));
+      const th = Object.assign(document.createElement('canvas'), { width: Math.round(cv.width * sc), height: Math.round(cv.height * sc) });
+      th.getContext('2d').drawImage(cv, 0, 0, th.width, th.height);
+      setExportPoster(th.toDataURL('image/jpeg', 0.85));
+    } catch { setExportPoster(null); }
     setExportState({ stage: 'setup', ext: pickMime()[1] });
     projectFps(rootRef.current, live.current.assetMap).then(({ suggest, source }) => { setExportFps(suggest); setSourceFps(source); });
   }, []);
@@ -1622,22 +1629,26 @@ function App() {
   const [exportFps, setExportFps] = useState(30);
   const [sourceFps, setSourceFps] = useState(null);
   const [offlineProg, setOfflineProg] = useState({ p: 0, label: '' });
+  const [exportPoster, setExportPoster] = useState(null);
+  // qualidade (taxa de bits) da exportação: fica guardada neste navegador
+  const [exportQuality, setExportQuality0] = useState(() => { try { const v = localStorage.getItem('cutlab.exportQuality'); return EXPORT_QUALITY[v] ? v : 'rec'; } catch { return 'rec'; } });
+  const setExportQuality = (v) => { setExportQuality0(v); try { localStorage.setItem('cutlab.exportQuality', v); } catch { /* sem armazenamento */ } };
   const startOffline = async () => {
     setPlaying(false);
     select(null);
     const job = { cancelled: false };
     offlineRef.current = job;
     setOfflineProg({ p: 0, label: 'Preparando…' });
-    setExportState((s) => ({ ...s, stage: 'rendering', offline: true }));
+    setExportState((s) => ({ ...s, stage: 'rendering', offline: true, startedAt: performance.now() }));
     try {
       const root = rootRef.current;
       const r = await exportOffline({
         clips: root, assetMap: live.current.assetMap, trackState: exitStack.current[0]?.ts ?? live.current.trackState,
-        W, H, fps: exportFps, duration: innerLength(root),
-        onProgress: (p, label) => setOfflineProg({ p, label }), isCancelled: () => job.cancelled,
+        W, H, fps: exportFps, duration: innerLength(root), bitrate: exportBitrate(W, H, exportFps, exportQuality),
+        onProgress: (p, label, info) => setOfflineProg({ p, label, ...info }), isCancelled: () => job.cancelled,
       });
       if (job.cancelled) return;
-      setExportState({ stage: 'done', url: URL.createObjectURL(r.blob), ext: r.ext, size: r.blob.size, seconds: r.seconds, duration: innerLength(root), codec: r.codec, audio: r.audio, fps: exportFps, offline: true });
+      setExportState({ stage: 'done', blob: r.blob, url: URL.createObjectURL(r.blob), ext: r.ext, size: r.blob.size, seconds: r.seconds, duration: innerLength(root), codec: r.codec, audio: r.audio, fps: exportFps, offline: true });
     } catch (e) {
       if (!job.cancelled) { notify('Falha na exportação: ' + (e?.message || e)); setExportState((s) => s && { ...s, stage: 'setup' }); }
     } finally {
@@ -1651,14 +1662,15 @@ function App() {
     setPlaying(false);
     select(null);
     seek(0);
-    setExportState((s) => ({ ...s, stage: 'rendering' }));
+    const startedAt = performance.now();
+    setExportState((s) => ({ ...s, stage: 'rendering', startedAt }));
     await new Promise((r) => setTimeout(r, 500));
     const [mime, ext] = pickMime();
     // captureStream(0): os quadros só entram quando chamamos requestFrame() no loop de desenho
     const stream = canvasRef.current.captureStream(0);
     const track = stream.getVideoTracks()[0];
     engine.dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
-    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: q > 1 ? 12e6 : 8e6 });
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: (q > 1 ? 12e6 : 8e6) * (EXPORT_QUALITY[exportQuality]?.f ?? 1) });
     const chunks = [];
     rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     rec.onstop = () => {
@@ -1668,7 +1680,7 @@ function App() {
       stream.getVideoTracks().forEach((t) => t.stop());
       if (cancelled) return;
       const blob = new Blob(chunks, { type: mime.split(';')[0] });
-      setExportState({ stage: 'done', url: URL.createObjectURL(blob), ext, size: blob.size });
+      setExportState({ stage: 'done', blob, url: URL.createObjectURL(blob), ext, size: blob.size, duration: innerLength(rootRef.current), seconds: (performance.now() - startedAt) / 1000 });
     };
     rec.track = track;
     recRef.current = rec;
@@ -1883,9 +1895,11 @@ function App() {
       )}
       {trEdit && <TransitionEditor initial={trEdit.def} applyTo={trEdit.applyTo} onSave={saveTrEditor} onClose={() => setTrEdit(null)} />}
       <ExportModal state={exportState} name={projectName} resolution={resolution} setResolution={setResolution} ratio={ratio}
-        fps={exportFps} setFps={setExportFps} sourceFps={sourceFps}
-        method={exportMethod} setMethod={setExportMethod} offlineOk={offlineExportSupported()} offlineLabel={offlineProg.label}
-        onStart={startExport} onCancel={cancelExport} onClose={() => setExportState(null)} progress={exportState?.offline ? offlineProg.p : duration ? time / duration : 0} />
+        fps={exportFps} setFps={setExportFps} sourceFps={sourceFps} quality={exportQuality} setQuality={setExportQuality}
+        method={exportMethod} setMethod={setExportMethod} offlineOk={offlineExportSupported()} duration={duration} poster={exportPoster}
+        onStart={startExport} onCancel={cancelExport}
+        onClose={() => { if (exportState?.url) setTimeout(() => URL.revokeObjectURL(exportState.url), 1000); setExportState(null); }}
+        prog={exportState?.offline ? offlineProg : { p: duration ? time / duration : 0 }} />
       <InfoModal kind={info} onClose={() => setInfo(null)} />
       <Onboarding />
       {dropHint && <div className="drop-overlay">Solte para importar</div>}
