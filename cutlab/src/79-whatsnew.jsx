@@ -10,7 +10,7 @@
    ===================================================================== */
 const CHANGELOG = [
   {
-    id: '2026-10-20.1', date: '20/10/2026', title: 'Clipes acelerados lisos e proxies mais rápidos',
+    id: '2026-10-20.1', date: '20/10/2026', desktop: '0.3.1', title: 'Clipes acelerados lisos e proxies mais rápidos',
     items: [
       ['correção', 'Clipes com velocidade alterada (2×, 4×…) engasgavam e pulavam quadros: decodificavam o vídeo original, mesmo com o proxy pronto. Agora usam o proxy na prévia (a exportação continua com o original).'],
       ['melhoria', 'Em alta velocidade só os quadros que aparecem na tela são preparados, e o cache não descarta mais os quadros da frente antes de mostrá-los.'],
