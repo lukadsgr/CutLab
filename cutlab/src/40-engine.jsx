@@ -783,7 +783,10 @@ class Engine {
     const t0 = performance.now();
     while (performance.now() - t0 < 3000 && fs.state === 'ready') {
       // decodificando à frente; se o quadro não sai (fim do arquivo, quadros retidos para reordenar), força o flush
-      fs.want(s, rate, performance.now() - t0 < 120);
+      // esvaziar o decodificador (want com playing=false) obriga o próximo quadro a recomeçar do
+      // quadro-chave: só no fim do arquivo, onde não há mais o que alimentar. Antes bastava um quadro
+      // passar de 120 ms (4K pesado depois de um corte) e cada quadro seguinte redecodificava o GOP inteiro
+      fs.want(s, rate, performance.now() - t0 < 120 || fs.keepHi < fs.n - 1);
       if (fs.pair(s)?.exact) return;
       await yieldNow();
     }

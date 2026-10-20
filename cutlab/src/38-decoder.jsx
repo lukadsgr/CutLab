@@ -284,7 +284,7 @@ async function decodeMp4Audio(file, from = 0, to = Infinity) {
       dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Math.round(sec(k) * 1e6), data: buf.subarray(o, o + S.size[k]) }));
     }
     i = j + 1;
-    if (dec.decodeQueueSize > 200) await new Promise((r) => setTimeout(r, 0));
+    if (dec.decodeQueueSize > 200) await yieldNow();
   }
   if (!failed) await dec.flush().catch((e) => { failed = e; });
   dec.close?.();
@@ -361,7 +361,7 @@ class FrameSource {
     createImageBitmap(f, { resizeWidth: this.outW, resizeHeight: this.outH, resizeQuality: 'medium' })
       .then((bm) => { if (this.frames.has(pi)) bm.close(); else { this.frames.set(pi, bm); this.evict(); } })
       .catch(() => {})
-      .finally(() => { f.close(); this.pending--; });
+      .finally(() => { f.close(); this.pending--; this.wake?.(); });
   }
   evict() {
     const MAX = 72;
@@ -433,7 +433,7 @@ class FrameSource {
           const get = await this.readBatch(i, j);
           if (this.target !== p && Math.abs(this.target - p) > 240) continue;
           for (let d = i; d <= j; d++) {
-            while (this.dec.decodeQueueSize > 12) await new Promise((r) => setTimeout(r, 2));
+            while (this.dec.decodeQueueSize > 12) await drained(this.dec);
             this.dec.decode(new EncodedVideoChunk({ type: this.sync[d] ? 'key' : 'delta', timestamp: this.tsUs[d], data: get(d) }));
             this.fed = d;
           }
@@ -441,10 +441,12 @@ class FrameSource {
           // pausado: força a saída dos quadros retidos para reordenação
           await this.dec.flush().catch(() => {});
           this.needKey = true;
-          await new Promise((r) => setTimeout(r, 0));
+          await yieldNow();
           if (!this.frames.has(p)) break;
         } else {
-          await new Promise((r) => setTimeout(r, 4));
+          // esperando quadros que já estão no decodificador: acorda quando um fica pronto (setTimeout
+          // sozinho fica preso em 1 s com a aba em segundo plano e travava a exportação)
+          await new Promise((r) => { this.wake = r; setTimeout(r, 4); });
         }
       }
     } catch (e) {

@@ -107,11 +107,16 @@ async function mixProjectAudio(clips, assetMap, ts, dur, sr) {
       const file = a.file || await fetch(a.url).then((r) => r.blob()).catch(() => null);
       if (!file) return null;
       const big = file.size > 150e6;   // decodeAudioData decodificaria o arquivo inteiro na memória
-      if (a.type === 'video' && big) { const r = await viaMp4(a, file); if (r) return r; }
-      try { return { buf: await ctx.decodeAudioData(await file.arrayBuffer()), offset: 0 }; }
+      const mp4 = a.type === 'video' && (await MP4.index(file, 'vide').then(() => true, () => false));
+      // vídeo MP4 sem faixa de áudio (gravação de tela sem som…): nada a ler. Antes caía no último
+      // recurso, que toca o arquivo em tempo real — 1 min de vídeo = 1 min a mais de exportação
+      if (mp4 && !(await MP4.index(file, 'soun').then(() => true, () => false))) return null;
+      // MP4: só o trecho usado, pelo índice próprio (decodeAudioData decodificaria o arquivo inteiro)
+      if (mp4) { const r = await viaMp4(a, file); if (r) return r; }
+      try { if (big && mp4) throw 0; return { buf: await ctx.decodeAudioData(await file.arrayBuffer()), offset: 0 }; }
       catch {
-        // gravações de tela (MP4 fragmentado) e afins: lê a faixa de áudio pelo índice próprio
-        const r = (a.type === 'video' && !big ? await viaMp4(a, file) : null) || (a.url ? await viaElement(a) : null);
+        // formatos sem decodificador de áudio próprio: toca o trecho e grava (tempo real)
+        const r = a.url ? await viaElement(a) : null;
         if (!r && a.type === 'video' && (await MP4.index(file, 'soun').then(() => true, () => false))) unread.add(a.name);
         return r;
       }
@@ -163,20 +168,15 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
   if (!v) throw new Error('Este navegador não consegue codificar vídeo');
   const sr = 48000;
   const aud = await pickAudioCodec(sr);
-  onProgress(0, 'Mixando o áudio…');
-  const mix = aud ? await mixProjectAudio(clips, assetMap, trackState, duration, sr) : null;
-  if (isCancelled()) throw new DOMException('cancelado', 'AbortError');
-
-  const target = new Mux.ArrayBufferTarget();
-  const muxer = new Mux.Muxer({
-    target, fastStart: 'in-memory', firstTimestampBehavior: 'offset',
-    video: { codec: v.mux, width: W, height: H, frameRate: fps },
-    ...(mix ? { audio: { codec: aud.mux, numberOfChannels: 2, sampleRate: sr } } : {}),
-  });
-  let failure = null;
-
-  if (mix) {
-    const aenc = new AudioEncoder({ output: (ch, meta) => muxer.addAudioChunk(ch, meta), error: (e) => { failure = e; } });
+  // o áudio é mixado e codificado AO MESMO TEMPO que o vídeo é renderizado (como nos editores de
+  // desktop: cada etapa no seu ritmo). Antes a exportação esperava a mixagem inteira para só então
+  // começar o primeiro quadro
+  const audioP = aud ? (async () => {
+    const mix = await mixProjectAudio(clips, assetMap, trackState, duration, sr);
+    if (!mix) return null;
+    const chunks = [];
+    let err = null;
+    const aenc = new AudioEncoder({ output: (ch, meta) => chunks.push([ch, meta]), error: (e) => { err = e; } });
     aenc.configure(aud.cfg);
     const L = mix.getChannelData(0), R = mix.numberOfChannels > 1 ? mix.getChannelData(1) : L;
     for (let o = 0; o < mix.length; o += sr) {
@@ -189,9 +189,15 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
     }
     await aenc.flush();
     aenc.close();
-  }
+    if (err) throw err;
+    return chunks;
+  })() : Promise.resolve(null);
+  audioP.catch(() => {});   // o erro é tratado lá embaixo (ou a exportação foi cancelada antes)
 
-  const venc = new VideoEncoder({ output: (ch, meta) => muxer.addVideoChunk(ch, meta), error: (e) => { failure = e; } });
+  // os quadros codificados ficam guardados e o MP4 é montado no fim, quando já se sabe se há áudio
+  const vChunks = [];
+  let failure = null;
+  const venc = new VideoEncoder({ output: (ch, meta) => vChunks.push([ch, meta]), error: (e) => { failure = e; } });
   venc.configure(v.cfg);
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -203,6 +209,7 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
     onProgress(0, 'Abrindo os vídeos…');
     await engine.warmSources(clips, assetMap);
     await preloadStickers(clips);
+    let shown = 0;
     for (let i = 0; i < N; i++) {
       if (isCancelled()) throw new DOMException('cancelado', 'AbortError');
       if (failure) throw failure;
@@ -212,8 +219,11 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
       const frame = new VideoFrame(cv, { timestamp: Math.round((i * 1e6) / fps), duration: Math.round(1e6 / fps) });
       venc.encode(frame, { keyFrame: i % (fps * 2) === 0 });
       frame.close();
-      while (venc.encodeQueueSize > 6) await yieldNow();
-      if (i % 3 === 0) { onProgress(i / N, `Renderizando quadro ${i + 1} de ${N}`); await yieldNow(); }
+      // fila do codificador cheia: espera ele liberar uma vaga (antes girava em falso sem parar)
+      while (venc.encodeQueueSize > 8 && !failure) await drained(venc);
+      // progresso 4×/s: cada atualização redesenha a interface inteira (antes era a cada 3 quadros)
+      const now = performance.now();
+      if (now - shown > 250) { shown = now; onProgress(i / N, `Renderizando quadro ${i + 1} de ${N}`); await yieldNow(); }
     }
     await venc.flush();
     if (failure) throw failure;
@@ -222,7 +232,18 @@ async function exportOffline({ clips, assetMap, trackState, W, H, fps, duration,
     engine.outFps = null;
     try { venc.close(); } catch { /* já fechado */ }
   }
+  onProgress(1, 'Finalizando o áudio…');
+  const aChunks = await audioP;
+  if (isCancelled()) throw new DOMException('cancelado', 'AbortError');
   onProgress(1, 'Finalizando…');
+  const target = new Mux.ArrayBufferTarget();
+  const muxer = new Mux.Muxer({
+    target, fastStart: 'in-memory', firstTimestampBehavior: 'offset',
+    video: { codec: v.mux, width: W, height: H, frameRate: fps },
+    ...(aChunks ? { audio: { codec: aud.mux, numberOfChannels: 2, sampleRate: sr } } : {}),
+  });
+  for (const [ch, meta] of vChunks) muxer.addVideoChunk(ch, meta);
+  for (const [ch, meta] of aChunks || []) muxer.addAudioChunk(ch, meta);
   muxer.finalize();
-  return { blob: new Blob([target.buffer], { type: 'video/mp4' }), ext: 'mp4', codec: v.cfg.codec, audio: mix ? aud.mux : null, seconds: (performance.now() - started) / 1000 };
+  return { blob: new Blob([target.buffer], { type: 'video/mp4' }), ext: 'mp4', codec: v.cfg.codec, audio: aChunks ? aud.mux : null, seconds: (performance.now() - started) / 1000 };
 }

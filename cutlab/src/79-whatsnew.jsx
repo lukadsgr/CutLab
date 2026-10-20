@@ -10,6 +10,16 @@
    ===================================================================== */
 const CHANGELOG = [
   {
+    id: '2026-10-20.2', date: '20/10/2026', title: 'Exportação cerca de 3× mais rápida',
+    items: [
+      ['melhoria', 'A exportação rápida ficou cerca de 3× mais rápida: o áudio é mixado ao mesmo tempo que o vídeo é renderizado, em vez de antes dele.'],
+      ['correção', 'Vídeos sem faixa de áudio (gravações de tela sem som) eram tocados em tempo real durante a exportação só para descobrir que não havia som.'],
+      ['melhoria', 'O áudio de vídeos MP4 é lido só no trecho usado, sem decodificar o arquivo inteiro.'],
+      ['correção', 'Em vídeos pesados (4K), um quadro lento depois de um corte podia fazer cada quadro seguinte ser decodificado de novo desde o quadro-chave.'],
+      ['correção', 'A exportação quase parava com a aba do navegador em segundo plano.'],
+    ],
+  },
+  {
     id: '2026-10-20.1', date: '20/10/2026', desktop: '0.3.1', title: 'Clipes acelerados lisos e proxies mais rápidos',
     items: [
       ['correção', 'Clipes com velocidade alterada (2×, 4×…) engasgavam e pulavam quadros: decodificavam o vídeo original, mesmo com o proxy pronto. Agora usam o proxy na prévia (a exportação continua com o original).'],
