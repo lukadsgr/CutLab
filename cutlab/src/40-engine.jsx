@@ -664,20 +664,45 @@ class Engine {
     if (!fs) { fs = new FrameSource(a.file); this.sources.set(a.id, fs); }
     return fs;
   }
+  /**
+   * fonte de quadros que a prévia usa para este clipe: a do proxy do trecho, quando há (540p, quadro-chave
+   * a cada meio segundo). Decodificar o original — 4K, 60 qps, quadros-chave espaçados — a 2×, 4×… não
+   * acompanhava: a imagem engasgava e pulava quadros. `off`: instante do original em que a fonte começa
+   */
+  clipSource(c, a) {
+    const seg = this.proxyFor(c, a);
+    if (!seg?.file || !window.VideoDecoder) return { fs: this.frameSource(a), off: 0, proxy: false };
+    const key = a.id + '@' + seg.url;
+    let fs = this.sources.get(key);
+    if (!fs) {
+      // trechos de proxy que saíram da mídia (engolidos por um maior) liberam os quadros guardados
+      const live = new Set((a.proxies || []).map((x) => a.id + '@' + x.url));
+      for (const [k, f] of this.sources) if (k.startsWith(a.id + '@') && !live.has(k)) { f.close(); this.sources.delete(k); }
+      fs = new FrameSource(seg.file);
+      this.sources.set(key, fs);
+    }
+    return { fs, off: seg.off, proxy: true };
+  }
   /** usa o motor exato quando a velocidade do clipe foi alterada */
   usesPrecise(c, p) { return c.type === 'video' && (c.speedCurve || Math.abs(c.speed - 1) > 1e-3) && p.precise !== false; }
   precise(c, a, p) {
     // na exportação offline todo vídeo com decodificador WebCodecs usa o quadro exato
     if (!(this.offline ? c.type === 'video' : this.usesPrecise(c, p))) return null;
-    const fs = this.frameSource(a);
+    // a exportação usa sempre o original; a prévia, o proxy do trecho quando há
+    const { fs, off } = this.offline ? { fs: this.frameSource(a), off: 0 } : this.clipSource(c, a);
     if (!fs || fs.state !== 'ready') return null;
     const local = clamp(this.t - c.start, 0, c.duration);
-    const s = srcTimeAt(c, local), rate = rateAt(c, local);
+    const s = srcTimeAt(c, local) - off, rate = rateAt(c, local);
     const playing = this.offline || !!this.rates.get(c.id)?.playing;
     // desfoque de movimento: janela de tempo da mídia coberta por um quadro de saída (obturador de 180°)
     const mb = (p.motionBlur ?? 0) / 100;
-    const blurSpan = rate > 1.25 && mb > 0 ? Math.min(0.5, (rate / (this.outFps || FPS)) * mb) : 0;
-    fs.want(s, rate, playing, blurSpan);
+    const outFps = this.outFps || FPS;
+    const blurSpan = rate > 1.25 && mb > 0 ? Math.min(0.5, (rate / outFps) * mb) : 0;
+    // acelerado e tocando na prévia: só os quadros que chegam a aparecer viram imagem. A 4× num vídeo de
+    // 60 qps, 7 de cada 8 quadros decodificados nunca são mostrados — e enchiam o cache, que descartava
+    // os quadros da frente e obrigava a decodificar tudo de novo a partir do quadro-chave
+    const stride = !this.offline && playing && !blurSpan ? Math.max(1, Math.floor((rate * fs.fps) / outFps)) : 1;
+    fs.want(s, rate, playing, blurSpan, stride);
     const pr = fs.pair(s);
     if (!pr) return null;
     const w = fs.outW, h = fs.outH;
@@ -784,8 +809,8 @@ class Engine {
     if (c.type !== 'video') return null;
     if (!window.VideoDecoder) return { state: 'error', error: 'WebCodecs indisponível neste navegador' };
     if (!a?.file) return { state: 'error', error: 'Reimporte o arquivo para usar o motor exato' };
-    const fs = this.frameSource(a);
-    return { state: fs.state, error: fs.error, codec: fs.codec, w: fs.width, h: fs.height, fps: fs.fps, cached: fs.frames?.size || 0 };
+    const { fs, proxy } = this.clipSource(c, a);
+    return { proxy, state: fs.state, error: fs.error, codec: fs.codec, w: fs.width, h: fs.height, fps: fs.fps, cached: fs.frames?.size || 0 };
   }
   /** guarda o quadro atual e então busca — evita quadro preto enquanto o decodificador procura */
   seek(id, el, t, why = 'outro') {

@@ -19,7 +19,9 @@ function createWindow() {
     width: 1440, height: 900, minWidth: 960, minHeight: 600,
     backgroundColor: '#060607', show: false, autoHideMenuBar: true, title: 'CutLab',
     icon: path.join(__dirname, 'build', 'icon.png'),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
+    // sem freio em segundo plano: com a janela minimizada ou atrás de outra, o Chromium segurava os
+    // timers em 1 s — os proxies e a exportação praticamente paravam
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false },
   });
   win.once('ready-to-show', () => { win.maximize(); win.show(); });
   // links externos (ex.: notas da versão) abrem no navegador do sistema

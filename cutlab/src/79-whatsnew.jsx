@@ -10,6 +10,15 @@
    ===================================================================== */
 const CHANGELOG = [
   {
+    id: '2026-10-20.1', date: '20/10/2026', title: 'Clipes acelerados lisos e proxies mais rápidos',
+    items: [
+      ['correção', 'Clipes com velocidade alterada (2×, 4×…) engasgavam e pulavam quadros: decodificavam o vídeo original, mesmo com o proxy pronto. Agora usam o proxy na prévia (a exportação continua com o original).'],
+      ['melhoria', 'Em alta velocidade só os quadros que aparecem na tela são preparados, e o cache não descarta mais os quadros da frente antes de mostrá-los.'],
+      ['melhoria', 'Os proxies são gerados bem mais rápido: o decodificador e o codificador da placa de vídeo trabalham sem pausas desnecessárias.'],
+      ['correção', 'No programa para Windows, os proxies e a exportação quase paravam com a janela minimizada ou atrás de outra.'],
+    ],
+  },
+  {
     id: '2026-10-18.6', date: '18/10/2026', desktop: '0.3.0', title: 'Janela de atalhos cabe na tela',
     items: [
       ['correção', 'A janela de atalhos de teclado passava da altura da tela; agora a lista rola por dentro e o botão Fechar fica sempre visível.'],

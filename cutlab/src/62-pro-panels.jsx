@@ -492,7 +492,7 @@ function BlendToggle({ p, clip, asset, setProps }) {
   const on = p.precise !== false;
   const altered = clip.speedCurve || Math.abs(clip.speed - 1) > 1e-3;
   const status = !on ? ['off', 'Modo compatível (vídeo HTML)']
-    : info?.state === 'ready' ? ['ok', `Quadro a quadro · ${(info.codec || '').split('.')[0].toUpperCase()} ${info.w}×${info.h} · ${Math.round(info.fps)} fps`]
+    : info?.state === 'ready' ? ['ok', `Quadro a quadro · ${(info.codec || '').split('.')[0].toUpperCase()} ${info.w}×${info.h} · ${Math.round(info.fps)} fps${info.proxy ? ' · proxy' : ''}`]
     : info?.state === 'loading' ? ['load', 'Indexando o arquivo…']
     : ['err', info?.error || 'Motor exato indisponível'];
   return (

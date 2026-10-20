@@ -65,6 +65,9 @@ async function makeProxy(file, { from = 0, to = Infinity, onProgress = () => {},
   if (!(await VideoDecoder.isConfigSupported(dcfg)).supported) { delete dcfg.hardwareAcceleration; if (!(await VideoDecoder.isConfigSupported(dcfg)).supported) throw new Error('sem decodificador para ' + v.codec); }
   const enc0 = await pickVideoCodec(PW, PH, fps, PW * PH * fps * 0.12);
   if (!enc0) throw new Error('sem codificador de vídeo');
+  // codificador da placa de vídeo quando houver (no software o proxy levava minutos)
+  const hw = { ...enc0.cfg, hardwareAcceleration: 'prefer-hardware' };
+  if ((await VideoEncoder.isConfigSupported(hw).catch(() => ({}))).supported) enc0.cfg = hw;
 
   const target = new Mux.ArrayBufferTarget();
   // o gerador desloca as duas faixas juntas para começar em 0: o deslocamento volta em `off`
@@ -128,8 +131,12 @@ async function makeProxy(file, { from = 0, to = Infinity, onProgress = () => {},
     const buf = new Uint8Array(await file.slice(lo, hi).arrayBuffer());
     for (let k = i; k <= j && !failure; k++) {
       dec.decode(new EncodedVideoChunk({ type: S.sync[k] ? 'key' : 'delta', timestamp: Math.round(pts(k) * 1e6), data: buf.subarray(S.off[k] - lo, S.off[k] - lo + S.size[k]) }));
-      // sem pressa: deixa o navegador (e a reprodução) respirar entre lotes
-      while (!failure && (dec.decodeQueueSize > 4 || enc.encodeQueueSize > 4)) await new Promise((r) => setTimeout(r, 0));
+      // fila cheia: espera o decodificador/codificador liberar uma vaga (evento 'dequeue'). Antes era
+      // setTimeout(0) com fila de 4 — cada espera custava ≥ 4 ms (e 1 s com a janela em segundo plano),
+      // e o decodificador de hardware ficava ocioso a maior parte do tempo
+      while (!failure && (dec.decodeQueueSize > 12 || enc.encodeQueueSize > 8)) await drained(dec.decodeQueueSize > 12 ? dec : enc);
+      // e cede a vez de tempos em tempos, sem o atraso mínimo do setTimeout: a reprodução continua lisa
+      if ((k & 15) === 0) await yieldNow();
       if (isCancelled()) { try { dec.close(); enc.close(); } catch { /* já fechados */ } throw new DOMException('cancelado', 'AbortError'); }
     }
     onProgress(Math.min(0.99, (j + 1 - k0) / (k1 - k0 + 1)));
@@ -144,6 +151,13 @@ async function makeProxy(file, { from = 0, to = Infinity, onProgress = () => {},
   onProgress(1);
   return { blob: new Blob([target.buffer], { type: 'video/mp4' }), off: from + (isFinite(minTs) ? minTs : 0) / 1e6 };
 }
+
+/** espera o decodificador/codificador tirar algo da fila (com limite: navegadores sem o evento 'dequeue') */
+const drained = (codec) => new Promise((r) => {
+  const done = () => { codec.removeEventListener?.('dequeue', done); clearTimeout(to); r(); };
+  const to = setTimeout(done, 20);
+  codec.addEventListener?.('dequeue', done);
+});
 
 /* ---------- trechos usados na linha do tempo ---------- */
 const PROXY_PAD = 2;     // margem de cada lado: aparar um pouco o corte não exige proxy novo

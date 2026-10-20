@@ -306,6 +306,7 @@ class FrameSource {
     this.keepHi = -1;
     this.busy = false;
     this.playing = false;
+    this.stride = 1;   // acelerado: só um a cada `stride` quadros vira imagem (ver want)
     this.init().catch((e) => { this.state = 'error'; this.error = e?.message || String(e); });
   }
   async init() {
@@ -354,6 +355,8 @@ class FrameSource {
   onFrame(f) {
     const pi = this.tsToPres.get(f.timestamp);
     if (pi == null || pi < this.keepLo || pi > this.keepHi || this.frames.has(pi)) { f.close(); return; }
+    // acelerado: quadro que não chega a aparecer não vira imagem (o mais caro aqui é o createImageBitmap)
+    if (this.stride > 1 && pi % this.stride && pi !== this.target) { f.close(); return; }
     this.pending = (this.pending || 0) + 1;
     createImageBitmap(f, { resizeWidth: this.outW, resizeHeight: this.outH, resizeQuality: 'medium' })
       .then((bm) => { if (this.frames.has(pi)) bm.close(); else { this.frames.set(pi, bm); this.evict(); } })
@@ -375,12 +378,16 @@ class FrameSource {
     return lo;
   }
   /** pede o quadro do tempo s; decodifica à frente conforme a velocidade */
-  want(s, rate, playing, blurSpan = 0) {
+  /** `stride` > 1: só guarda um a cada `stride` quadros (acelerado na prévia: os outros nunca aparecem) */
+  want(s, rate, playing, blurSpan = 0, stride = 1) {
     if (this.state !== 'ready') return;
     const p = this.presAt(s);
     this.playing = playing;
+    this.stride = stride;
     const back = Math.ceil(blurSpan * this.fps / 2) + 2;
-    const ahead = playing ? Math.ceil(clamp(rate, 0.05, 16) * this.fps * 0.45 + blurSpan * this.fps / 2) + 3 : 2;
+    // a janela à frente cabe no cache (72): maior que ele, os quadros da frente eram descartados antes de
+    // aparecer e tudo voltava a ser decodificado a partir do quadro-chave — o engasgo em 4×, 8×…
+    const ahead = playing ? Math.min(56 * stride, Math.ceil(clamp(rate, 0.05, 16) * this.fps * 0.45 + blurSpan * this.fps / 2) + 3) : 2;
     this.target = p;
     this.keepLo = p - back;
     this.keepHi = Math.min(this.n - 1, p + ahead);
@@ -396,6 +403,8 @@ class FrameSource {
     return (k) => new Uint8Array(parts[k - i]);
   }
   keyBefore(d) { while (d > 0 && !this.sync[d]) d--; return d; }
+  /** há imagem para mostrar no quadro p? (com `stride`, vale a guardada logo antes dele) */
+  shown(p) { for (let q = p; q > p - this.stride && q >= 0; q--) if (this.frames.has(q)) return true; return false; }
   async pump() {
     this.busy = true;
     try {
@@ -407,12 +416,12 @@ class FrameSource {
         let dEnd = 0;
         for (let q = p; q <= hi; q++) dEnd = Math.max(dEnd, this.presToDec[q]);
         dEnd = Math.min(this.n - 1, dEnd + 3);
-        const have = this.frames.has(p) && (p + 1 > hi || this.frames.has(p + 1));
+        const have = this.shown(p) && (this.stride > 1 || p + 1 > hi || this.frames.has(p + 1));
         if (have && this.fed >= dEnd) break;
         // precisa recomeçar de um quadro-chave? (início, salto para trás, salto grande à frente,
         // ou o quadro já passou pelo decodificador e foi descartado)
         const k = this.keyBefore(dWant);
-        const lost = this.fed >= dWant + 8 && !this.frames.has(p) && this.dec.decodeQueueSize === 0 && !this.pending;
+        const lost = this.fed >= dWant + 8 && !this.shown(p) && this.dec.decodeQueueSize === 0 && !this.pending;
         if (this.needKey || this.fed < k - 1 || this.fed - dEnd > 120 || lost) {
           this.dec.reset();
           this.dec.configure(this.cfg);
